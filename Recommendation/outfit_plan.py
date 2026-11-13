@@ -5,56 +5,16 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
 
 from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError
-from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
+from pydantic import ValidationError
 
+from .schemas import GarmentSpec, OutfitPlan, OutfitPlanInput, UserQuery
+from .prompts import OUTFIT_PLAN_PROMPT
 from .weather import WeatherInfo, WeatherLookupError, get_weather
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-UserQuery = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
-
-
-class GarmentSpec(BaseModel):
-    """한 카테고리에서 검색할 옷의 조건."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    clothing_type: str
-    style: str
-    details: list[str]
-
-
-class OutfitPlan(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    top: GarmentSpec
-    bottom: GarmentSpec
-    outer: GarmentSpec | None
-    reason: str
-
-
-class _OutfitPlanInput(BaseModel):
-    query: UserQuery
-    weather: WeatherInfo
-
-
-_INSTRUCTIONS = """당신은 개인 옷장 검색에 필요한 코디 조건을 작성한다.
-사용자의 일정, 취향, 색상, 복장 요구사항과 입력된 날씨를 반영해
-서로 어울리는 한 가지 코디를 한국어로 제안한다.
-체감 온도가 주어지면 보온성과 겹쳐 입을 필요를 판단할 때 우선 고려한다.
-비나 바람 등은 날씨 정보에 포함된 경우 반영한다. 제공되지 않은 날씨는 추정하지 않는다.
-
-top에는 상의, bottom에는 하의, outer에는 외투를 각각 한 벌씩 제안한다.
-날씨와 사용 목적상 외투가 필요 없으면 outer를 null로 반환한다.
-clothing_type에는 의류 종류(예: 셔츠, 슬랙스), style에는 스타일(예: 미니멀 비즈니스 캐주얼)을 쓴다.
-details에는 색상, 소재, 핏, 소매 길이 등 검색에 유용한 조건만 짧게 나열한다.
-reason에는 이 조합이 사용자 요청과 날씨에 맞는 이유를 한두 문장으로 쓴다.
-보유 여부, 상품명, 브랜드, 의류 ID는 지어내지 않는다.
-"""
-
 
 def generate_outfit_plan(
     query: str,
@@ -62,9 +22,13 @@ def generate_outfit_plan(
     *,
     client: OpenAI | None = None,
     model: str | None = None,
+    intent: str | None = None,
+    selected_clothing: dict[str, str] | None = None,
 ) -> OutfitPlan:
     """조회된 날씨와 사용자 요청을 OpenAI에 보내 의류 카테고리별 조건을 반환한다."""
-    payload = _OutfitPlanInput(query=query, weather=weather)
+    payload = OutfitPlanInput(
+        query=query, weather=weather, intent=intent, selected_clothing=selected_clothing
+    )
     load_dotenv(PROJECT_ROOT / ".env", override=False)
     model_name = (
         model
@@ -75,7 +39,7 @@ def generate_outfit_plan(
     ai = client if client is not None else OpenAI(timeout=30.0, max_retries=2)
     response = ai.responses.parse(
         model=model_name,
-        instructions=_INSTRUCTIONS,
+        instructions=OUTFIT_PLAN_PROMPT,
         input=json.dumps(payload.model_dump(exclude_none=True), ensure_ascii=False),
         text_format=OutfitPlan,
         max_output_tokens=1200,

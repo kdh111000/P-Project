@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime, timezone
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -21,6 +21,7 @@ class WeatherInfo(BaseModel):
 
 _GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+_KOREAN_CITY_ALIASES = {"서울": "Seoul", "부산": "Busan"}
 _WEATHER_FIELDS = ("temperature_2m", "apparent_temperature", "weather_code")
 _WEATHER_CONDITIONS = {
     0: "맑음",
@@ -60,13 +61,20 @@ class WeatherLookupError(RuntimeError):
 
 
 def _fetch_json(url: str, params: dict[str, str | float | int]) -> dict:
+    stage = "지역 검색" if url == _GEOCODING_URL else "날씨 조회"
     try:
         with urlopen(f"{url}?{urlencode(params)}", timeout=8) as response:
             payload = json.load(response)
-    except (URLError, TimeoutError, ValueError) as exc:
-        raise WeatherLookupError("날씨 조회 서비스에 연결하거나 응답을 읽을 수 없습니다.") from exc
+    except HTTPError as exc:
+        raise WeatherLookupError(f"Open-Meteo {stage} 요청이 HTTP {exc.code}로 실패했습니다.") from exc
+    except URLError as exc:
+        raise WeatherLookupError(f"Open-Meteo {stage} 연결 실패 ({exc.reason}).") from exc
+    except TimeoutError as exc:
+        raise WeatherLookupError(f"Open-Meteo {stage} 응답 시간이 초과됐습니다.") from exc
+    except ValueError as exc:
+        raise WeatherLookupError(f"Open-Meteo {stage} 응답을 JSON으로 읽을 수 없습니다.") from exc
     if not isinstance(payload, dict) or payload.get("error"):
-        raise WeatherLookupError("날씨 조회 서비스에서 정상 응답을 받지 못했습니다.")
+        raise WeatherLookupError(f"Open-Meteo {stage}에서 정상 응답을 받지 못했습니다.")
     return payload
 
 
@@ -95,6 +103,10 @@ def get_weather(
             raise ValueError("국가 코드는 KR처럼 영문 두 글자로 입력해 주세요.")
         search_params["countryCode"] = code
     matches = _fetch_json(_GEOCODING_URL, search_params).get("results", [])
+    alias = _KOREAN_CITY_ALIASES.get(location)
+    if matches == [] and alias is not None and search_params.get("countryCode") in (None, "KR"):
+        search_params.update(name=alias, countryCode="KR")
+        matches = _fetch_json(_GEOCODING_URL, search_params).get("results", [])
     if not isinstance(matches, list):
         raise WeatherLookupError("지역 검색 응답의 형식이 올바르지 않습니다.")
     if not matches:
