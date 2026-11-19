@@ -348,7 +348,8 @@ if __name__ == "__main__":
     if a.stop:
         LOG.mkdir(exist_ok=True)
         STOP.touch()
-        raise SystemExit("stop requested")
+        print("stop requested")
+        raise SystemExit
     if a.worker:
         worker()
     if not a.closet:
