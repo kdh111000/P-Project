@@ -8,7 +8,7 @@ Someone = pixels clearly closer than the empty scene (doorcam/background.png), s
 the empty scene is learned from the first second if missing, or again with `b` in the live window.
 run: python doorcam.py --closet <closet id> [--show]   (camera: records, prints stats every second)
      python doorcam.py --worker                         (backend: analyses recorded sessions as they appear)"""
-import argparse, collections, json, os, signal, time
+import argparse, collections, json, os, shutil, signal, time
 from pathlib import Path
 import cv2
 import numpy as np
@@ -26,6 +26,9 @@ STEP = 3                    # record every 3rd frame: 10 fps is enough for the b
 IDLE_S = 10                 # dark this long (door shut): colour stream off too, only a quick look every POLL_S
 POLL_S = 1.0                # ponytail: up to ~1 s late when the door opens; shorten if the first moment matters
 WAKE_FRAMES = 5             # frames read after a restart before judging brightness (auto exposure)
+JPEG_QUALITY = 80           # recorded colour frames (OpenCV default 95 gave ~135 KB per 640x480 frame)
+KEEP_DAYS = 3               # raw recorded frames are deleted after this (the judged shots stay)
+MAX_RAW_GB = 5.0            # ...or sooner, oldest first, when all raw frames together exceed this
 
 
 def door_open(depth, bgr):
@@ -92,7 +95,7 @@ class Tape:
 
     def add(self, bgr, depth):
         if self.n % STEP == 0:
-            cv2.imwrite(str(self.d / "colour" / f"{self.n // STEP:05d}.jpg"), bgr)
+            cv2.imwrite(str(self.d / "colour" / f"{self.n // STEP:05d}.jpg"), bgr, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
             cv2.imwrite(str(self.d / "depth" / f"{self.n // STEP:05d}.png"), depth)
         self.n += 1
 
@@ -253,11 +256,15 @@ def astra():
 
 
 def stats(frames, bg, every=30):
+    """one line per second; "centre" = median depth of the middle of the frame: on a still scene it drifts while the
+    laser warms up, the only heat hint this Astra gives (it has no readable temperature)"""
     for i, f in enumerate(frames):
         if i % every == 0:
-            _, bgr, z = f
-            print(f"valid {(z > 0).mean():.2f}  bright {bgr.mean():.0f}  closer {closer(z, bg).mean():.2f}  "
-                  f"door {'open' if door_open(z, bgr) else 'shut'}  person {person(z, bg)}", flush=True)
+            t, bgr, z = f
+            mid = z[z.shape[0] * 2 // 5:z.shape[0] * 3 // 5, z.shape[1] * 2 // 5:z.shape[1] * 3 // 5]
+            centre = int(np.median(mid[mid > 0])) if (mid > 0).any() else 0
+            print(f"{time.strftime('%H:%M:%S', time.localtime(t))}  valid {(z > 0).mean():.2f}  bright {bgr.mean():.0f}  "
+                  f"centre {centre}mm  closer {closer(z, bg).mean():.2f}  door {'open' if door_open(z, bgr) else 'shut'}  person {person(z, bg)}", flush=True)
         yield f
 
 
@@ -290,10 +297,34 @@ def show(frames, bg):
         yield f
 
 
+def prune(out=LOG, now=None, keep_days=KEEP_DAYS, max_bytes=MAX_RAW_GB * 1e9):
+    """raw frames (colour/, depth/: ~1.8 MB/s of open door) are kept keep_days for re-analysis, then deleted;
+    above max_bytes the oldest finished sessions (meta.json written) go first. The shots the judge uses
+    (before/after, *_seg.jpg, meta.json: ~1 MB per opening) always stay. -> deleted session names"""
+    now, raw, gone = now or time.time(), [], []
+    for d in sorted(out.glob("2*-*")):  # folder names sort by time: oldest first
+        subs = [s for s in (d / "colour", d / "depth") if s.is_dir()]
+        try:
+            t = time.mktime(time.strptime(d.name, "%Y%m%d-%H%M%S"))
+        except ValueError:
+            continue
+        if subs:
+            raw.append((t, d, subs, sum(f.stat().st_size for s in subs for f in s.iterdir())))
+    total = sum(r[3] for r in raw)
+    for t, d, subs, size in raw:
+        if now - t > keep_days * 86400 or (total > max_bytes and (d / "meta.json").exists()):
+            for s in subs:
+                shutil.rmtree(s, ignore_errors=True)
+            total -= size
+            gone.append(d.name)
+            print("pruned raw frames", d.name, f"{size / 1e6:.0f} MB", flush=True)
+    return gone
+
+
 def worker(out=LOG, every=5):
     """backend: analyse every recorded session with someone in it that has no result yet; sessions that failed
-    (Qwen down) are retried once per worker start"""
-    tried = set()
+    (Qwen down) are retried once per worker start. Raw frames are pruned every 10 minutes."""
+    tried, pruned = set(), 0
     while True:
         for m in sorted(out.glob("*/meta.json")):
             meta = json.loads(m.read_text(encoding="utf-8"))
@@ -301,6 +332,9 @@ def worker(out=LOG, every=5):
                 tried.add(m.parent)
                 r = judge(m.parent, meta["closet"])
                 print("judged", m.parent.name, {k: r.get(k) for k in ("taken", "returned", "error")}, flush=True)
+        if time.time() - pruned > 600:
+            prune(out)
+            pruned = time.time()
         time.sleep(every)
 
 

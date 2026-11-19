@@ -65,6 +65,28 @@ def test_doorcam():
         assert "error" in doorcam.judge(d, "a" * 16, down, store, find=lambda im, near: [cut(5)])
 
 
+def test_prune():
+    """raw frames go after keep_days or, oldest finished first, above the size cap; judged shots always stay"""
+    with tempfile.TemporaryDirectory() as tmp:
+        out, now = Path(tmp), 1_800_000_000
+        def session(age_days, finished=True, kb=10):
+            d = doorcam.folder(now - age_days * 86400, out)
+            for s in ("colour", "depth"):
+                (d / s).mkdir(parents=True)
+                (d / s / "00000.x").write_bytes(b"0" * kb * 512)
+            (d / "before.jpg").write_bytes(b"jpg")
+            if finished:
+                (d / "meta.json").write_text("{}")
+            return d
+        old, mid, new, live = session(4), session(2), session(1), session(0, finished=False)
+        assert doorcam.prune(out, now, keep_days=3, max_bytes=1e9) == [old.name]
+        assert not (old / "colour").exists() and (old / "before.jpg").exists() and (mid / "colour").exists()
+        assert doorcam.prune(out, now, keep_days=3, max_bytes=25_000) == [mid.name]  # 3 x 10 KB left -> oldest finished goes
+        assert doorcam.prune(out, now, keep_days=3, max_bytes=1) == [new.name]  # the one still recording (no meta) is never cut
+        assert (live / "colour").exists()
+
+
 if __name__ == "__main__":
     test_doorcam()
+    test_prune()
     print("ok")
