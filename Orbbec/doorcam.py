@@ -23,6 +23,9 @@ CLOSER_MM = 150             # this much in front of the empty scene = someone (A
 PERSON_FRAC = 0.05          # share of the frame they must fill
 SHUT_FRAMES = 5             # a hand passing over the lens is not a closed door
 STEP = 3                    # record every 3rd frame: 10 fps is enough for the backend and a third of the disk
+IDLE_S = 10                 # dark this long (door shut): colour stream off too, only a quick look every POLL_S
+POLL_S = 1.0                # ponytail: up to ~1 s late when the door opens; shorten if the first moment matters
+WAKE_FRAMES = 5             # frames read after a restart before judging brightness (auto exposure)
 
 
 def door_open(depth, bgr):
@@ -189,23 +192,41 @@ def _write(d, meta):
 
 def astra():
     """-> (unix time, bgr, depth mm) forever; depth is registered to the colour image.
-    The depth stream (and its laser) runs only while the colour image is bright; in the dark depth is all zeros."""
+    The depth stream (and its laser) runs only while the colour image is bright; in the dark depth is all zeros.
+    Dark for IDLE_S: the colour stream stops too and is started for a quick look every POLL_S (one dark frame is
+    yielded per look, so the live window, stats and --stop keep working)."""
     from openni import openni2
     openni2.initialize(OPENNI2_DIR)
     dev = openni2.Device.open_any()  # "no devices found" with the USB device listed: replug it into a rear port
     depth, color = dev.create_depth_stream(), dev.create_color_stream()
     depth.start(), depth.stop()  # ponytail: meant to switch off a laser left on by a killed run; unverified on this unit
     color.start()
-    on, dark = False, 0
+    on, dark, idle = False, 0, False
+    to_bgr = lambda c: cv2.cvtColor(np.frombuffer(c.get_buffer_as_uint8(), np.uint8).reshape(c.height, c.width, 3), cv2.COLOR_RGB2BGR)
     try:
         while True:
             if STOP.exists():  # python doorcam.py --stop: a clean exit, so the laser is switched off
                 STOP.unlink()
                 print("stop requested", flush=True)
                 return
-            c = color.read_frame()
-            bgr = cv2.cvtColor(np.frombuffer(c.get_buffer_as_uint8(), np.uint8).reshape(c.height, c.width, 3), cv2.COLOR_RGB2BGR)
+            if idle:
+                time.sleep(POLL_S)
+                color.start()
+                for _ in range(WAKE_FRAMES):  # auto exposure settles over the first frames after a start
+                    bgr = to_bgr(color.read_frame())
+                if bgr.mean() <= DARK:
+                    color.stop()
+                    yield time.time(), bgr, np.zeros(bgr.shape[:2], np.uint16)
+                    continue
+                idle = False
+                print("light: camera awake", flush=True)
+            else:
+                bgr = to_bgr(color.read_frame())
             dark = dark + 1 if bgr.mean() <= DARK else 0
+            if not on and dark >= IDLE_S * 30:
+                color.stop()
+                idle = True
+                print("dark: camera idle", flush=True)
             if not on and not dark:
                 depth.start()
                 try:
@@ -225,7 +246,8 @@ def astra():
     finally:
         if on:
             depth.stop()
-        color.stop()
+        if not idle:
+            color.stop()
         openni2.unload()
         print("camera closed, depth laser off", flush=True)
 
