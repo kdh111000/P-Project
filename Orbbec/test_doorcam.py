@@ -50,12 +50,12 @@ def test_doorcam():
             (g / "meta.json").write_text(json.dumps({"time": str(i), "closet": "a" * 16, "in_closet": True, "category": cat, "out": out}), encoding="utf-8")
         seen = []
         def ask(images, prompt, labels, side, max_tokens, grammar):
-            seen.append(labels)  # cut colour tells which shot it came from: before -> garment 2, after -> garment 1
-            return {"desc": "x", "match": 2 if images[0].getpixel((0, 0))[0] == 105 else 1}
+            seen.append(labels)  # each shot only offers its pool: before -> out garments (g2), after -> in-closet (g1, g3)
+            return {"desc": "x", "match": 0 if images[0].getpixel((0, 0))[0] == 107 else 1}
         cut = lambda v: {"label": "jacket", "score": .3, "box": [0, 0, 9, 9], "mask": np.zeros((48, 64), bool), "cut": Image.fromarray(rgb(v))}
         shots = iter([[cut(5)], [cut(6), cut(7)]])  # opening: garment 2 in hand; closing: garment 1 and an unknown piece
         m = doorcam.judge(d, "a" * 16, ask, store, find=lambda im, near: next(shots))
-        assert seen[0][0] == "[조각]" and len(seen[0]) == 4 and len(seen) == 3
+        assert seen[0][0] == "[조각]" and len(seen[0]) == 2 and "하의" in seen[0][1] and len(seen[1]) == 3 and len(seen) == 3
         assert (m["taken"], m["returned"]) == (["아우터/g1"], ["하의/g2"]), m
         assert m["found_after"][0]["garment"] == "아우터/g1" and (d / "after_seg.jpg").exists()
         flag = lambda k: json.loads((store / k / "meta.json").read_text(encoding="utf-8"))["out"]

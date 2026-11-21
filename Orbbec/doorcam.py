@@ -160,13 +160,17 @@ def judge(d, cid, ask=None, store=None, find=None):
     held = {}
     try:
         for name in ("before", "after"):
+            # only an out garment can come back (opening shot), only one in the closet can leave (closing shot)
+            pool = [(k, f) for k, f in fronts.items() if bool(dict(mine)[k].get("out")) == (name == "before")]
+            held[name], meta[f"found_{name}"] = set(), []
+            if not pool:
+                continue
             im = Image.open(d / f"{name}.jpg").convert("RGB")
             z = cv2.imread(str(d / f"{name}_depth.png"), cv2.IMREAD_UNCHANGED)
             found = find(im, closer(z, bg) if bg is not None and z is not None and z.shape == bg.shape else None)
             detect.overlay(im, found).save(d / f"{name}_seg.jpg")
-            held[name], meta[f"found_{name}"] = set(), []
             for g in found:
-                cands = detect.shortlist([g["cut"]], list(fronts.items()))
+                cands = detect.shortlist([g["cut"]], pool)
                 labels = ["[조각]"] + [f"[옷 {i}] {dict(mine)[k]['category']} · {dict(mine)[k].get('desc') or ''}" for i, (k, _) in enumerate(cands, 1)]
                 try:
                     r = ask([g["cut"]] + [im_ for _, im_ in cands], prompt=MATCH, labels=labels, side=web.SIDE, max_tokens=100, grammar=False)
