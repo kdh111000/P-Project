@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>내 옷장</title>
+<style>
+:root{font-family:Inter,"맑은 고딕",sans-serif;color:#243a35;background:#f6f5f0}*{box-sizing:border-box}body{margin:0}header{padding:24px 5%;border-bottom:1px solid #dce1d8;display:flex;align-items:center;gap:12px}header strong{font-size:18px}header span{color:#718078;font-size:13px}main{max-width:1240px;margin:auto;padding:52px 28px}h1{font-size:42px;letter-spacing:-2px;margin:0 0 12px}p{color:#6b7973;margin:0 0 30px}button{font:inherit;padding:12px 16px;border:1px solid #cdd5cd;border-radius:10px;background:white}button{cursor:pointer}button:hover{border-color:#284f40}nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:28px}nav button[aria-pressed=true]{background:#284f40;color:white;border-color:#284f40}#status{margin-bottom:20px;color:#65776c}#grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px}.card{border:1px solid #e0e3da;border-radius:16px;overflow:hidden;background:#fff}.image{aspect-ratio:4/5;background:#eeeee7;display:flex;align-items:center;justify-content:center;color:#7a847b}.image img{width:100%;height:100%;object-fit:contain}.info{padding:18px}.category{color:#718078;font-size:12px}.name{font-size:17px;margin:8px 0 10px;overflow-wrap:anywhere}.detail{color:#758076;font-size:13px;line-height:1.8;overflow-wrap:anywhere}#empty{padding:72px 16px;text-align:center;color:#6b7973;border:1px dashed #cdd5cd;border-radius:16px}footer{margin-top:40px;font-size:12px;color:#7d897f}@media(max-width:900px){#grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:650px){main{padding:30px 18px}h1{font-size:34px}#grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.info{padding:12px}header span{display:none}}
+
+.wardrobe-pages{position:relative;padding:0 40px}
+.page-arrow{position:absolute;top:50%;transform:translateY(-50%);width:30px;height:38px;padding:0;border-radius:50%;font-size:24px;color:#284f40}
+.page-arrow.previous{left:0}.page-arrow.next{right:0}
+.page-arrow:disabled{opacity:.25;cursor:default}
+#page-status{text-align:center;margin:18px 0 0;color:#718078;font-size:13px}
+@media(max-width:900px){#grid{grid-template-columns:repeat(4,minmax(0,1fr))}.wardrobe-pages{padding:0 32px}.info{padding:10px}.name{font-size:14px}}
+@media(max-width:650px){#grid{gap:6px}.info{padding:6px}.name{font-size:12px}.detail{font-size:10px}}
+
+.prompt-section{margin-top:40px;background:white;border:1px solid #dce1d8;border-radius:16px;padding:24px}
+.prompt-section h2{margin:0 0 8px;font-size:22px}.prompt-section p{margin:0 0 20px;font-size:14px}
+.prompt-section label{display:block;margin:14px 0 8px;font-size:14px}
+.prompt-section input,.prompt-section textarea{font:inherit;width:100%;border:1px solid #cdd5cd;border-radius:10px;background:#fafbf7;padding:12px;color:#243a35}
+.prompt-section textarea{min-height:100px;resize:vertical}
+#ask-button{margin-top:14px;background:#284f40;color:white}#ask-button:disabled{opacity:.5;cursor:wait}
+#outfit-status{margin-top:16px;color:#65776c}#outfit-result{line-height:1.8;overflow-wrap:anywhere}
+.outfit-category{padding:20px 0;border-bottom:1px solid #e0e3da}
+.outfit-category h3{margin:0 0 8px}
+.match-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:16px}
+.match-grid .image{aspect-ratio:1;max-height:260px}
+.match-score{color:#284f40;font-size:14px;font-weight:600}
+@media(max-width:650px){.match-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.card.selected{outline:3px solid #284f40;outline-offset:2px}
+button.image{width:100%;padding:0;border:0;border-radius:0;cursor:pointer}
+button.image:focus-visible{outline:3px solid #284f40;outline-offset:-3px}
+#selected-clothing{margin:16px 0;padding:14px;border-radius:10px;background:#eef3eb}
+#selected-clothing button{margin-left:12px;padding:6px 12px}
+</style>
+<header><strong>WARDROBE / 내 옷장</strong><span>보유한 옷을 한눈에</span></header>
+<main>
+<h1>오늘은 무엇을 입을까요?</h1><p>내 옷장의 상의, 하의, 외투를 살펴보세요.</p>
+<nav id="tabs" aria-label="의류 종류"></nav>
+<div id="status" role="status" aria-live="polite"></div><div class="wardrobe-pages">
+<section id="grid" aria-label="보유 의류"></section>
+<button id="previous-page" class="page-arrow previous" type="button" aria-label="이전 옷 8개">‹</button>
+<button id="next-page" class="page-arrow next" type="button" aria-label="다음 옷 8개">›</button>
+</div>
+<div id="page-status" role="status" aria-live="polite"></div><div id="empty" hidden></div>
+<section class="prompt-section" aria-labelledby="prompt-title">
+<h2 id="prompt-title">어떤 코디를 찾고 있나요?</h2>
+<p>일정과 원하는 스타일을 적으면 날씨를 반영한 코디 조건을 제안해 드립니다.</p>
+<div id="selected-clothing" aria-live="polite"></div>
+<form id="outfit-form">
+<label for="outfit-location">지역</label><input id="outfit-location" value="서울" required minlength="2" maxlength="200">
+<label for="outfit-query">코디 요청</label><textarea id="outfit-query" placeholder="예: 내일 출근할 때 입을 단정하고 편한 코디를 추천해 줘" required maxlength="2000"></textarea>
+<button id="ask-button" type="submit">코디 제안 받기</button>
+</form>
+<div id="outfit-status" role="status" aria-live="polite"></div>
+<div id="outfit-result"></div>
+</section>
+<footer>사진 열람 링크는 10분 동안 유효합니다. 사진이 만료되면 브라우저를 새로고침해 주세요.</footer>
+</main>
+<script>
+const labels={all:'전체',top:'상의',bottom:'하의',outer:'외투'};
+let clothes=[],category='all',page=0,controller,selectedClothing=null,asking=false;
+const pageSize=8;
+const grid=document.querySelector('#grid'),tabs=document.querySelector('#tabs'),status=document.querySelector('#status'),empty=document.querySelector('#empty');
+function text(tag,value,className){const element=document.createElement(tag);element.textContent=value;if(className)element.className=className;return element;}
+function selectClothing(item){
+ if(asking)return;
+ selectedClothing=selectedClothing?.id===item?.id?null:item;
+ document.querySelector('#outfit-result').replaceChildren();
+ document.querySelector('#outfit-status').textContent='';
+ render();
+}
+function render(){
+ const selection=document.querySelector('#selected-clothing');
+ selection.replaceChildren();
+ if(selectedClothing){
+  selection.append(text('span','선택한 '+labels[selectedClothing.category]+' · '+selectedClothing.name));
+  const clear=text('button','선택 해제');clear.type='button';clear.disabled=asking;clear.onclick=()=>selectClothing(null);selection.append(clear);
+ }else{selection.append(text('span','함께 입을 옷이 있으면 위 사진을 선택하세요.'));}
+
+ tabs.replaceChildren();
+ for(const [key,label] of Object.entries(labels)){
+  const count=clothes.filter(item=>key==='all'||item.category===key).length;
+  const button=text('button',label+' '+count);button.type='button';button.setAttribute('aria-pressed',String(category===key));button.onclick=()=>{category=key;page=0;render();};tabs.append(button);
+ }
+ const visible=clothes.filter(item=>category==='all'||item.category===category);
+ const totalPages=Math.ceil(visible.length/pageSize);
+ page=Math.max(0,Math.min(page,totalPages-1));
+ const previous=document.querySelector('#previous-page'),next=document.querySelector('#next-page');
+ previous.disabled=page===0;next.disabled=page>=totalPages-1;
+ previous.hidden=next.hidden=totalPages<=1;
+ document.querySelector('#page-status').textContent=totalPages ? (page+1)+' / '+totalPages : '';
+ grid.replaceChildren();
+ for(const item of visible.slice(page*pageSize,(page+1)*pageSize)){
+  const card=text('article','','card'),image=text('button','사진 없음','image');
+  image.type='button';image.disabled=asking;image.setAttribute('aria-label',(item.name||'의류')+' 선택');
+  const chosen=selectedClothing?.id===item.id;image.setAttribute('aria-pressed',String(chosen));card.classList.toggle('selected',chosen);
+  image.onclick=()=>selectClothing(item);
+  if(item.photo_url){const img=document.createElement('img');img.alt=item.name||'의류';img.loading='lazy';img.referrerPolicy='no-referrer';img.src=item.photo_url;img.onerror=()=>image.replaceChildren(text('span','사진을 불러올 수 없습니다'));image.replaceChildren(img);}
+  const info=text('div','','info');info.append(text('div',labels[item.category]||'기타','category'),text('h2',item.name||'이름 없는 옷','name'));
+  const details=[item.color,item.material].filter(Boolean);if(details.length)info.append(text('div',details.join(' · '),'detail'));
+  if(item.storage_location)info.append(text('div','보관 위치 '+item.storage_location,'detail'));
+  card.append(image,info);grid.append(card);
+ }
+ empty.hidden=visible.length>0;empty.textContent=clothes.length?'조건에 맞는 옷이 없습니다.':'등록된 옷이 없습니다. 사용자 ID와 DB 접근 권한을 확인해 주세요.';
+}
+async function load(){
+ if(controller)controller.abort();controller=new AbortController();
+ status.textContent='옷장을 불러오는 중…';grid.setAttribute('aria-busy','true');
+ try{
+  const response=await fetch('/api/clothes',{signal:controller.signal});const data=await response.json();
+  if(!response.ok)throw new Error(data.error||'조회에 실패했습니다.');clothes=data.clothes;page=0;render();status.textContent=clothes.length+'벌을 불러왔습니다.';
+ }catch(error){if(error.name!=='AbortError'){clothes=[];render();empty.hidden=true;status.textContent=error.message;}}
+ finally{grid.setAttribute('aria-busy','false');}
+}
+document.querySelector('#previous-page').onclick=()=>{page--;render();};
+document.querySelector('#next-page').onclick=()=>{page++;render();};
+
+document.querySelector('#outfit-form').onsubmit=async event=>{
+ event.preventDefault();
+ const button=document.querySelector('#ask-button'),message=document.querySelector('#outfit-status'),result=document.querySelector('#outfit-result');
+ asking=true;render();button.disabled=true;result.replaceChildren();message.textContent='날씨를 조회하고 코디를 제안하는 중…';result.setAttribute('aria-busy','true');
+ try{
+  const response=await fetch('/api/outfit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:document.querySelector('#outfit-query').value.trim(),location:document.querySelector('#outfit-location').value.trim(),selected_clothing_id:selectedClothing?.id||null})});
+  const data=await response.json();if(!response.ok)throw new Error(data.error||'요청에 실패했습니다.');
+  message.textContent='기온 '+data.weather.temperature_c+'°C'+(data.weather.conditions?' · '+data.weather.conditions:'');
+  for(const key of ['top','bottom','outer']){
+   const fixed=data.selected_clothing?.category===key?data.selected_clothing:null;
+   const spec=data.outfit[key];const section=text('section','','outfit-category');section.append(text('h3',labels[key]));
+   if(fixed){
+    section.append(text('div','선택한 옷 · '+fixed.name));
+    const image=text('div','사진 없음','image');
+    if(fixed.photo_url){
+     const img=document.createElement('img');img.src=fixed.photo_url;img.alt=fixed.name;img.referrerPolicy='no-referrer';
+     img.onerror=()=>image.replaceChildren(text('span','사진을 불러올 수 없습니다'));image.replaceChildren(img);
+    }
+    const photos=text('div','','match-grid');photos.append(image);section.append(photos);result.append(section);continue;
+   }
+   section.append(text('div',spec?spec.clothing_type+' · '+spec.style:'외투 생략'));
+   if(spec){
+    section.append(text('div',spec.details.join(' · '),'detail'));
+    const matches=data.matches?.[key]||[];
+    if(matches.length){
+     const photos=text('div','','match-grid');
+     for(const match of matches){
+      const card=text('article','','card'),image=text('div','사진 없음','image');
+      if(match.photo_url){
+       const img=document.createElement('img');img.src=match.photo_url;img.alt=match.name||labels[key];img.loading='lazy';img.referrerPolicy='no-referrer';
+       img.onerror=()=>image.replaceChildren(text('span','사진을 불러올 수 없습니다'));image.replaceChildren(img);
+      }
+      const info=text('div','','info');info.append(text('div',match.name||'이름 없는 옷','name'));
+      const score=Number.isFinite(match.similarity)?match.similarity.toFixed(3):'정보 없음';
+      info.append(text('div','유사도 '+score,'match-score'));
+      card.append(image,info);photos.append(card);
+     }
+     section.append(photos);
+    }else{section.append(text('div','검색된 보유 의류가 없습니다.','detail'));}
+   }
+   result.append(section);
+  }
+  result.append(text('p',data.outfit.reason));
+ }catch(error){message.textContent=error.message;}
+ finally{asking=false;render();button.disabled=false;result.setAttribute('aria-busy','false');}
+};
+render();load();
+</script>
+</html>
