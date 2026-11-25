@@ -4,9 +4,8 @@
 영상에서 등록할 옷만 찾아 잘라내고, 안내한 방향대로 찍혔는지 확인한 뒤 옷의 종류를 분류한다.
 
 ## 처리 흐름
-<img width="1080" height="1930" alt="image" src="https://github.com/user-attachments/assets/5545020b-8085-4520-a5bf-0e66c0eda099" />
 
-
+<img width="480" alt="처리 흐름" src="https://github.com/user-attachments/assets/5545020b-8085-4520-a5bf-0e66c0eda099" />
 
 | 단계 | 하는 일 | 모델 |
 |---|---|---|
