@@ -7,6 +7,7 @@
 <img width="1080" height="1930" alt="image" src="https://github.com/user-attachments/assets/5545020b-8085-4520-a5bf-0e66c0eda099" />
 
 
+
 | 단계 | 하는 일 | 모델 |
 |---|---|---|
 | 탐지 | 옷을 찾고, 등록에 쓸 만하게 찍혔는지 판정 | YOLOE (사전학습) |
