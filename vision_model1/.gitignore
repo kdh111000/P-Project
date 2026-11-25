@@ -1,0 +1,10 @@
+data/
+out/
+__pycache__/
+.ipynb_checkpoints/
+
+# 탐지 모델은 실행할 때 자동으로 내려받으므로 올리지 않는다.
+# weights/ 의 분류 모델은 직접 학습한 것이라 저장소에 포함한다.
+*.pt
+*.ts
+!weights/*.pt

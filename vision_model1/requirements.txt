@@ -1,0 +1,9 @@
+torch
+torchvision
+ultralytics>=8.4
+opencv-python
+pillow
+numpy
+openai
+# YOLOE가 텍스트 프롬프트를 임베딩할 때 필요
+clip @ git+https://github.com/ultralytics/CLIP.git
