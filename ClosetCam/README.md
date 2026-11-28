@@ -7,7 +7,7 @@
 ```powershell
 git lfs install
 git clone -b orbbec_doorcam https://github.com/kdh111000/P-Project.git
-cd P-Project\Orbbec
+cd P-Project\ClosetCam
 .\run.bat
 ```
 - 첫 실행은 `.venv`를 만들고 필요한 것을 설치합니다(약 3 GB, Python 3.10~3.13 필요). 모델 파일(약 820 MB)은 Git LFS로 받습니다.
@@ -19,7 +19,7 @@ cd P-Project\Orbbec
 ### 다른 PC로 그대로 옮기기
 GitHub에는 코드와 공개 자료로 학습한 모델만 있습니다. 사용자 영상으로 학습한 26(8차), 등록 옷 사진, 녹화, 확인한 학습 장면은 올리지 않으니 USB로 옮깁니다.
 1. 지금 PC의 작업 폴더에서 `pack_local.bat` → `fitmate_local.tar`(models·registered·db_cache·doorcam_web·collect·yolo\raw\data·camweb_key.txt 중 있는 것)
-2. 새 PC: 위 "바로 실행"의 clone 후, `Orbbec` 폴더에 tar를 두고 `tar -xf fitmate_local.tar` → `.\run.bat`
+2. 새 PC: 위 "바로 실행"의 clone 후, `ClosetCam` 폴더에 tar를 두고 `tar -xf fitmate_local.tar` → `.\run.bat`
 3. 팀 DB를 쓰면 환경변수 3개(아래 "팀 DB 연결")를 새 PC에도 넣습니다.
 
 `models\held.pt`가 있으면 그것(이 PC 옷장 장면으로 미세 학습한 26)을, 없으면 `match\held.pt`(6차, 공개판)를 씁니다. `finetune.py final <이름>`으로 만든 판을 쓰려면 `models\held.pt`로 복사합니다.
