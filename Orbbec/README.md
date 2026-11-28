@@ -46,6 +46,16 @@ cd P-Project\Orbbec
 | `match/held.pt` | 26: 손에 든 옷·팔·옷걸이를 찾음(YOLO26 s) |
 | `match/pose.pt` | 포즈: 공식 YOLO26 n pose. 얼굴을 옷으로 잘못 잡은 상자를 버리는 데만 씀 |
 | `match/match_*.pt`, `match/decider.npz` | 비교 모델과 이진 분류기 |
+| `db.py` | 팀 DB(Supabase `clothes`)와 주고받기. 꺼져 있으면 아무것도 안 함 |
+| `test_db.py` | 가짜 Supabase 서버로 `db.py` 시험, `python test_db.py` |
+
+### 팀 DB 연결 (Supabase)
+환경변수 3개(`SUPABASE_URL`, `SUPABASE_KEY` 서버용 키, `FITMATE_USER_ID`)를 넣고 실행하면 켜집니다. 키는 파일에 적지 않습니다. 하나라도 없으면 지금처럼 이 PC 안에서만 동작합니다.
+- 시작할 때: 사용자의 `clothes` 줄과 사진을 `db_cache/`로 받아 등록된 옷으로 씀. 연결이 안 되면 마지막에 받은 목록을 씀
+- 입출고 때: DB에 있는 옷이면 `is_available`(참 = 옷장 안, `db.py`의 `IN_CLOSET`), `location_verified_at`을 고침
+- 표에 칸이 없는 것(방향, 시작 시각, 판정 확률, 조각 사진)은 `db_local.jsonl`에 남음. 같은 이름의 칸이 생기면 그때부터 DB로 감
+- DB는 옷 하나에 사진 1장(앞)이라 뒤·옆 사진은 `db_cache/<id>/back.jpg`, `side.jpg`로 이 PC에 둠
+- 미등록·확인필요 옷은 DB에 줄이 없어 `track.jsonl`에만 남음. `storage_location`(옷장 안 위치)은 건드리지 않음
 
 **학습 자료(26)**: 합성 장면 6,000장(ATR·LVIS 공개 자료) + 사람이 옷을 들고 있는 실제 장면 8,576장(Action Genome·Charades). 시험 영상의 사람·옷 장면은 학습에 넣지 않았습니다(합성 배경에 같은 옷장의 사람 없는 사진 3장만 씀).
 

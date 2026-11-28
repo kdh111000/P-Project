@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 import cv2
 import numpy as np
+import db
 import match
 from track import NEW, REGISTERED, UNSURE, Track
 
@@ -87,8 +88,10 @@ def photos(d):
 
 
 def garments(cid=None):
-    """{key: folder}: registered here with --add, and the garments of one closet of the Fitmate server"""
+    """{key: folder}: registered here with --add, the user's garments in the team DB (db.py, last pull) and the garments of one
+    closet of the Fitmate server"""
     g = {d.name: d for d in sorted(MINE.glob("*")) if d.is_dir() and photos(d)}
+    g.update({k: d for k, d in db.garments(g).items() if photos(d)})
     for m in sorted(UPLOADS.glob("*/*/meta.json")) if cid else []:
         meta = json.loads(m.read_text(encoding="utf-8"))
         if meta.get("closet") == cid and meta.get("in_closet"):
@@ -140,10 +143,18 @@ def is_person(b, faces):
     return b[2] - b[0] < .6 and any(sum(b[0] <= x <= b[2] and b[1] <= y <= b[3] for x, y in f) >= 2 for f in faces)
 
 
-def see(bgr, size):
+SEEING = threading.Lock()  # ponytail: one frame at a time for every viewer of camweb.py; a GPU or a second process if it lags
+
+
+def see(bgr, size, held=None):
     """-> [(class, conf, box as a share of the frame)]; classes 0 held garment, 1 arm, 2 hanger"""
+    with SEEING:
+        return _see(bgr, size, held)
+
+
+def _see(bgr, size, held):
     h, w = bgr.shape[:2]
-    b = yolo(HELD)(bgr, imgsz=size, conf=.2, verbose=False)[0].boxes
+    b = yolo(held)(bgr, imgsz=size, conf=.2, verbose=False)[0].boxes
     out = [(int(c), float(s), (x[0] / w, x[1] / h, x[2] / w, x[3] / h)) for c, s, x in zip(b.cls, b.conf, b.xyxy.tolist())]
     if any(c == 0 for c, _, _ in out):
         r = yolo(POSE)(bgr, imgsz=640, conf=.25, verbose=False)[0]
@@ -240,15 +251,22 @@ def line(e):
     return f"{e['to'][11:19]} {'입고' if e['action'] == 'in' else '출고'} · {e['kind']} · {who} · {e['p']:.2f}{' · ' + e['twin'] + '와 같은 옷 한 벌 더' if e['twin'] else ''}"
 
 
-def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, closet=None):
-    """frames: (unix time, bgr). wait: finish each comparison before the next frame (recorded files)"""
-    for f in (HELD, POSE, *(match.W / f"match_{m}.pt" for m in match.MODELS), match.W / "decider.npz"):
+def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, closet=None, held=None, on_frame=None, on_move=None):
+    """frames: (unix time, bgr). wait: finish each comparison before the next frame (recorded files).
+    held: which 26. on_frame(dets, lines, judging): after every frame; on_move(action, start, end): when a move is found (camweb.py)"""
+    held = Path(held or HELD)  # read HELD now, not at import: tests swap live.HELD
+    for f in (held, POSE, *(match.W / f"match_{m}.pt" for m in match.MODELS), match.W / "decider.npz"):
         if not f.exists() or f.stat().st_size < 10_000:  # a Git LFS pointer, not the file
             raise SystemExit(f"모델 파일이 없습니다: {f.name}  ->  git lfs install 후 git lfs pull 을 실행하세요.")
     print("모델 여는 중...", flush=True)
-    for f in (HELD, POSE):
+    for f in (held, POSE):
         yolo(f)(np.zeros((720, 1280, 3), np.uint8), verbose=False)  # load now, not at the first garment
     match.nets()
+    if db.on() and closet is None:
+        try:
+            print(f"DB에서 옷 {db.pull([d.name for d in MINE.glob('*')])}벌 받음", flush=True)
+        except Exception as x:  # no network: the last pull is used
+            print("DB 연결 실패, 마지막으로 받은 목록을 씀:", type(x).__name__, x, flush=True)
     mine = registered(cid) if closet is None else closet
     t = Track(mine, out, match.decide, match.MARGIN, match.twins(mine))
     print(f"등록된 옷 {len(t.registered)}벌. 시작합니다.", flush=True)
@@ -270,6 +288,11 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
                 if e is None:  # the same garment going the same way again: still that move
                     continue
                 print(line(e), flush=True)
+                if db.on():
+                    try:
+                        db.push(e)
+                    except Exception as x:  # the move is in track.jsonl anyway
+                        print("DB 기록 실패:", type(x).__name__, x, flush=True)
                 lines[1:] = [line(e)] + lines[1:6]
             except Exception as x:  # one bad move must not end the watch
                 print("판정 실패:", type(x).__name__, x, flush=True)
@@ -280,11 +303,15 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
     w.start()
     try:
         for now, bgr in frames:
-            dets = see(bgr, size)
+            dets = see(bgr, size, held)
             for m in ev.step(now, [(s, b) for c, s, b in dets if c == 0], bgr):
                 todo.put(m)
+                if on_move:
+                    on_move(*m[:3])
             if wait:
                 todo.join()
+            if on_frame:
+                on_frame(dets, list(lines), todo.unfinished_tasks > 0)
             if window:
                 cv2.imshow("closet", draw(bgr, dets, lines + (["판정 중..."] if todo.unfinished_tasks else [])))
                 if cv2.waitKey(1) in (ord("q"), 27) or cv2.getWindowProperty("closet", cv2.WND_PROP_VISIBLE) < 1:

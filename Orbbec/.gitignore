@@ -5,3 +5,5 @@ registered/
 uploads/
 *.MOV
 *.mp4
+db_cache/
+db_local.jsonl
