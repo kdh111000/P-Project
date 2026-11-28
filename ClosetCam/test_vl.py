@@ -19,7 +19,8 @@ def test_vl():
     sent = []
     assert vl.ask(im, cands, fake('Same logo as candidate 2.\n{"answer": "2"}', sent)) == "코트"
     assert sum(b["type"] == "image_url" for b in sent[0]["messages"][0]["content"]) == 7
-    assert vl.ask(im, cands, fake('{"answer": 1}')) == "셔츠"
+    why = []
+    assert vl.ask(im, cands, fake('Stripes match.\n{"answer": 1}'), why=why) == "셔츠" and why == ['Stripes match.\n{"answer": 1}']
     assert vl.ask(im, cands, fake('{"answer": "none"}')) == NEW
     assert vl.ask(im, cands, fake('{"answer": "unsure"}')) is None
     assert vl.ask(im, cands, fake('{"answer": "3"}')) is None  # no such candidate

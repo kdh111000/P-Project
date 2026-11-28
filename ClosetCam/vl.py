@@ -30,8 +30,9 @@ def _img(bgr, side):
     return {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(cv2.imencode(".jpg", bgr)[1].tobytes()).decode()}}
 
 
-def ask(strip, cands, post=requests.post):
-    """strip: the crops of the move side by side (BGR); cands: {key: [BGR photos]} -> a key, NEW, or None (it cannot tell)"""
+def ask(strip, cands, post=requests.post, why=None):
+    """strip: the crops of the move side by side (BGR); cands: {key: [BGR photos]} -> a key, NEW, or None (it cannot tell).
+    why: a list that gets Qwen's whole answer (its reasoning), for the log"""
     keys = list(cands)
     content = [{"type": "text", "text": "held:"}, _img(strip, 1024)]
     for n, k in enumerate(keys, 1):
@@ -40,6 +41,8 @@ def ask(strip, cands, post=requests.post):
                                       "temperature": 0, "max_tokens": 400})
     r.raise_for_status()
     text = r.json()["choices"][0]["message"]["content"]
+    if why is not None:
+        why.append(text[:1000])
     try:  # untrusted: only a candidate number or "none" counts; no JSON (cut off, "GGG..." server fault) -> the user decides
         a = str(json.loads(text[text.rindex("{"):text.rindex("}") + 1]).get("answer", "")).strip().lower()
     except ValueError:

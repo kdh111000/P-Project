@@ -82,10 +82,11 @@ class Track:
     def move(self, action, frames, start, end, crop=None):
         """a garment went "in" or "out" between start and end; frames: embeddings of how it looked [(frames, dim) per model]"""
         assert action in ("in", "out") and end >= start, (action, start, end)
-        now, same, twin, odd, cands = self.items(), self.same(), None, False, []
+        now, same, twin, odd, cands, compare = self.items(), self.same(), None, False, [], []
         for seen in (self.registered, self.closet()):  # the photos first: what passed the door before was seen less well
             key, p, alike = self.decide(frames, seen, same)
             key, alike = key and key.removesuffix(DOOR), list(dict.fromkeys(k.removesuffix(DOOR) for k in alike))
+            compare.append({"against": "photos" if seen is self.registered else "photos+door", "best": key, "p": round(float(p), 3), "alike": alike})
             if sure := key is not None and p >= .5 + self.margin:
                 break
         if sure:
@@ -110,7 +111,7 @@ class Track:
         (self.out / "track").mkdir(parents=True, exist_ok=True)
         np.savez(self.out / name, *frames)
         return self._add({"item": item, "kind": kind, "action": action, "start": start, "end": end, "from": stamp(start), "to": stamp(end),
-                          "p": round(float(p), 3), "candidates": cands, "odd": odd, "twin": twin, "new": not sure or twin is not None, "frames": name, "crop": crop})
+                          "p": round(float(p), 3), "candidates": cands, "odd": odd, "twin": twin, "new": not sure or twin is not None, "frames": name, "crop": crop, "compare": compare})
 
     def resolve(self, item, as_, by="user"):
         """the user (or the inside camera, or Qwen: by) says what an unsure item is: a registered key, or NEW"""

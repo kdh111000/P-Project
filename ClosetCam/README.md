@@ -72,10 +72,11 @@ GitHub에는 코드와 공개 자료로 학습한 모델만 있습니다. 사용
 | `pack_local.bat` | GitHub에 없는 이 PC 자료를 `fitmate_local.tar`로 묶음 |
 
 ### 판정 로그 (다른 파트 연결)
-카메라가 내린 판정은 모든 세션 것이 `events.jsonl`(한 줄 = 판정 1건)에 쌓입니다. 다른 파트는 camweb 서버에서 가져갑니다(key 필요).
+카메라가 내린 결과는 모두 넘어갑니다(key 필요). 입출고 판정(26 → 분류 모델의 등록 사진 비교 → 애매하면 Qwen)은 모든 세션 것이 `events.jsonl`(한 줄 = 판정 1건)에, 26이 매 프레임 찾은 상자는 세션마다 `doorcam_web/<세션>/dets.jsonl`에 쌓입니다.
 ```
 GET https://<이 PC 주소>:8000/api/events?key=...&since=<마지막으로 받은 time>&limit=500   → {"events": [...]} 오래된 것부터
 GET https://<이 PC 주소>:8000/api/crop?key=...&path=<event의 crop>                         → 판정에 쓴 조각 사진(jpg)
+GET https://<이 PC 주소>:8000/api/detections?key=...&since=<마지막 time>&session=<생략: 최신>  → {"session", "detections": [...]} 매 프레임 상자
 ```
 `since`에 마지막으로 받은 `time`을 넣고 몇 초마다 부르면 새 판정만 옵니다.
 
@@ -90,7 +91,9 @@ GET https://<이 PC 주소>:8000/api/crop?key=...&path=<event의 crop>          
 | `p` | 등록된 옷일 확률 |
 | `candidates` | 확인필요일 때 후보 옷(가까운 순) |
 | `twin` | 똑같이 생긴 다른 옷이 있을 때 그 옷 |
-| `qwen` | Qwen에 물었으면 `{"answer": Qwen 답, "without": Qwen 없이 나온 판정}` |
+| `compare` | 분류 모델의 비교 단계별 결과: `against`(`photos` 등록 사진만 / `photos+door` 문 앞 모습 포함), `best`(확실할 때 고른 옷, 아니면 null), `p`, `alike`(가장 닮은 3벌), `db_ids`(그 3벌의 `clothes.id`) |
+| `qwen` | Qwen에 물었으면 `{"answer": Qwen 답, "without": Qwen 없이 나온 판정, "why": Qwen이 쓴 이유 원문}`. 후보에 등록 사진이 없으면(U번호끼리) 묻지 않음 |
+| `garment_frames` | `옷 아님`일 때만: 조각 중 옷으로 본 장수(예: `2/5`) |
 | `crop` | 판정에 쓴 조각 사진 경로(`/api/crop`) |
 
 ```json
@@ -114,7 +117,8 @@ while True:
 ```
 JavaScript(Node 18+): `NODE_TLS_REJECT_UNAUTHORIZED=0`으로 실행하고 `const {events} = await (await fetch(`${URL}/api/events?key=${KEY}&since=${since}`)).json()`.
 
-- 사람이 나중에 고친 판정(`--resolve`)과 프레임마다의 상자는 들어가지 않습니다(상자는 녹화로 다시 볼 수 있음).
+`dets.jsonl` 한 줄 = 프레임 1장: `{"time", "frame": 유닉스 시각(녹화 rec/<시각>.jpg와 같음), "boxes": [["옷"|"팔"|"옷걸이", 확신도, x1, y1, x2, y2(화면 비율 0~1)], ...]}`. 얼굴을 옷으로 잡은 상자는 빠진 뒤입니다.
+- 사람이 나중에 고친 판정(`--resolve`)은 아직 들어가지 않습니다.
 - 시험: `python test_events.py`
 
 ### 문 앞 모습 함께 비교

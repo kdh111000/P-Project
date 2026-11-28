@@ -17,6 +17,7 @@ from track import NEW, REGISTERED, UNSURE, Track
 
 ROOT = Path(__file__).resolve().parent
 OUT, MINE, UPLOADS, HELD, POSE = ROOT / "doorcam", ROOT / "registered", ROOT / "uploads", ROOT / "models" / "held.pt", ROOT / "match" / "pose.pt"
+NAMES = ("옷", "팔", "옷걸이")  # the 26's classes
 EVENTS = ROOT / "events.jsonl"  # every call the camera makes, all sessions, for the other parts of Fitmate (camweb /api/events)
 _events = threading.Lock()
 if not HELD.exists():  # models/held.pt: this PC's own 26 (fine-tuned on its closet scenes, never on GitHub); else the public one
@@ -97,15 +98,17 @@ def stamp(t):
     return datetime.fromtimestamp(t).astimezone().isoformat(timespec="milliseconds")
 
 
-def event(out, held, action, start, end, crop, e=None):
+def event(out, held, action, start, end, crop, e=None, **more):
     """one call as the other parts read it (README: 판정 로그). e: the move from Track.move (None: not a garment)"""
     c = Path(out) / crop
     v = {"time": stamp(end), "start": stamp(start), "session": Path(out).name, "model": Path(held).stem, "action": action,
          "result": "옷 아님", "garment": None, "db_id": None, "p": None, "candidates": [], "twin": None, "qwen": None,
-         "crop": c.relative_to(ROOT).as_posix() if c.is_relative_to(ROOT) else str(c)}
+         "crop": c.relative_to(ROOT).as_posix() if c.is_relative_to(ROOT) else str(c), "compare": [], **more}
     if e:
-        v.update(result=e["kind"], garment=e["item"], db_id=db.ids().get(e["item"]), p=e["p"], candidates=e["candidates"], twin=e["twin"],
-                 qwen={"answer": e["vl"], "without": e["without"]} if "vl" in e else None)
+        ids = db.ids()
+        v.update(result=e["kind"], garment=e["item"], db_id=ids.get(e["item"]), p=e["p"], candidates=e["candidates"], twin=e["twin"],
+                 compare=[{**x, "db_ids": [ids.get(k) for k in x["alike"]]} for x in e.get("compare", [])],
+                 qwen={"answer": e["vl"], "without": e["without"], "why": e.get("vl_why")} if "vl" in e else None)
     with _events, EVENTS.open("a", encoding="utf-8") as f:
         f.write(json.dumps(v, ensure_ascii=False) + "\n")
     return v
@@ -313,7 +316,7 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
                 ok = match.is_garment(frames) >= .5
                 if ok.mean() < .5:
                     print(f"옷이 아니어서 버림: {name} ({ok.sum()}/{len(ok)}장)", flush=True)
-                    event(out, held, action, start, end, name)
+                    event(out, held, action, start, end, name, garment_frames=f"{ok.sum()}/{len(ok)}")
                     continue
                 e = t.move(action, [x[ok] for x in frames], start, end, crop=name)
                 if e is None:  # the same garment going the same way again: still that move
@@ -321,7 +324,9 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
                 cands = {k: [imread(p) for p in photos(folders[k])] for k in e["candidates"] if k in folders}
                 if e["kind"] == UNSURE and cands and vl.on():
                     try:
-                        ans = vl.ask(cv2.imread(str(Path(out) / name)), cands)
+                        why = []
+                        ans = vl.ask(cv2.imread(str(Path(out) / name)), cands, why=why)
+                        e = {**e, "vl_why": why[0] if why else None}
                         said = ans or "모름"
                     except Exception as x:  # the user is asked, as without the VL
                         print("VL 실패:", type(x).__name__, x, flush=True)
@@ -348,9 +353,13 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
 
     w = threading.Thread(target=judge, daemon=True)
     w.start()
+    Path(out).mkdir(parents=True, exist_ok=True)
+    boxes = (Path(out) / "dets.jsonl").open("a", encoding="utf-8")  # every frame's boxes, for the other parts (camweb /api/detections)
     try:
         for now, bgr in frames:
             dets = see(bgr, size, held)
+            boxes.write(json.dumps({"time": stamp(now), "frame": round(now, 3), "boxes": [[NAMES[c], round(q, 3), *(round(x, 4) for x in b)] for c, q, b in dets]}, ensure_ascii=False) + "\n")
+            boxes.flush()
             for m in ev.step(now, [(s, b) for c, s, b in dets if c == 0], bgr):
                 todo.put(m)
                 if on_move:
@@ -366,6 +375,7 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
     except KeyboardInterrupt:
         pass
     finally:
+        boxes.close()
         frames.close()
         for m in ev.flush():
             todo.put(m)

@@ -114,6 +114,21 @@ def api_events(key: str = "", since: str = "", limit: int = 500):
     return {"events": ev[-max(1, min(limit, 5000)):]}
 
 
+
+@app.get("/api/detections")
+def api_detections(key: str = "", session: str = "", since: str = "", limit: int = 300):
+    """every frame's boxes (the 26, live) of one session (default: the newest), oldest first: after since, the newest limit"""
+    check(key)
+    have = sorted(d.name for d in OUT.glob("*") if (d / "dets.jsonl").exists() and re.fullmatch(r"\d{8}-\d{6}-\d{6}", d.name))
+    if session and session not in have:
+        raise HTTPException(404, "없는 세션입니다.")
+    if not have:
+        return {"session": None, "detections": []}
+    session = session or have[-1]
+    lines = (OUT / session / "dets.jsonl").read_text(encoding="utf-8").splitlines()  # ponytail: whole file, ~10 lines a second
+    d = [x for x in map(json.loads, filter(str.strip, lines)) if x["time"] > since]
+    return {"session": session, "detections": d[-max(1, min(limit, 5000)):]}
+
 @app.get("/api/crop")
 def api_crop(key: str = "", path: str = ""):
     """the crops a call was made on (an event's "crop")"""
