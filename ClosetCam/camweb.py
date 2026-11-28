@@ -6,7 +6,10 @@ once, choose 'advanced -> proceed'. The page needs the key printed at the start 
 anyone's CPU. Models: models/held.pt or else match/held.pt (in use) and every 26 in models/, with its note from models/목록.txt.
 Ticking "학습용 장면 저장" keeps frames of moves seen with a still camera on this PC (collect.py); /review sorts them.
 "녹화" keeps every frame received as doorcam_web/<time>/rec/<unix time>.jpg: feeding them back to live.run in name order
-replays the session exactly (for scoring moves)."""
+replays the session exactly (for scoring moves). Those are the frames the judge saw (960 wide, as fast as it judges); the camera's
+own video (its full size and frame rate) comes too, in 5 s pieces while it runs: doorcam_web/<time>/raw.webm (or .mp4) + raw.json.
+A phone stores it its own way up (held sideways, the video lies on its side, with no mark saying so), so raw.json "shape"
+keeps, piece by piece, the screen's turn (screen.orientation.angle) and the picture's size as shown: [piece, angle, w, h]."""
 import argparse, asyncio, fnmatch, ipaddress, json, queue, re, secrets, socket, tempfile, threading, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +25,7 @@ ROOT = live.ROOT
 MODELS, PAGE, REVIEW, KEY_FILE, CERT, OUT = ROOT / "models", ROOT / "camweb.html", ROOT / "camweb_review.html", ROOT / "camweb_key.txt", ROOT / "camweb_cert", ROOT / "doorcam_web"
 NOT_26 = ("포즈", "match_", "held.")
 MAX_BYTES = 15 * 1024 * 1024
+MAX_RAW = 100 * 1024 * 1024  # one 5 s piece of the camera's own video
 KEY = KEY_FILE.read_text().strip() if KEY_FILE.exists() else ""
 if not KEY:
     KEY = secrets.token_urlsafe(12)
@@ -119,6 +123,31 @@ async def api_register(key: str = Form(""), name: str = Form(...), front: Upload
     return {"registered": list(live.garments())}
 
 
+@app.post("/api/raw")
+async def api_raw(key: str = Form(""), folder: str = Form(...), n: int = Form(...), type: str = Form(...), t0: float = Form(...),
+                  sent: float = Form(...), angle: int = Form(0), w: int = Form(0), h: int = Form(0), chunk: UploadFile = File(...)):
+    """piece n of the camera's own video of one session, appended in order (the page sends them one after another)"""
+    check(key)
+    d, ext = OUT / folder, "mp4" if type.startswith("video/mp4") else "webm"
+    if not re.fullmatch(r"\d{8}-\d{6}-\d{6}", folder) or not (d / "rec").is_dir():
+        raise HTTPException(400, "없는 녹화입니다.")
+    meta = json.loads((d / "raw.json").read_text()) if (d / "raw.json").exists() else {"pieces": 0}  # one session at a time
+    if n < meta["pieces"]:
+        return meta  # sent twice (a retry after a lost answer)
+    if n != meta["pieces"] or (b := await chunk.read(MAX_RAW + 1)) is None or len(b) > MAX_RAW:
+        raise HTTPException(400, f"조각 순서가 맞지 않습니다: {n} (기대 {meta['pieces']})")
+    with open(d / f"raw.{ext}", "ab") as f:
+        f.write(b)
+    if n == 0:  # page and PC clocks differ: rec/<unix time>.jpg lines up with the video through server_got - sent
+        meta.update(type=type, file=f"raw.{ext}", page_start_ms=t0, sent_ms=sent, server_got=time.time())
+    if not meta.get("shape") or meta["shape"][-1][1:] != [angle, w, h]:  # the phone turned (or the first piece)
+        meta.setdefault("shape", []).append([n, angle, w, h])
+    meta["pieces"], meta["bytes"] = n + 1, meta.get("bytes", 0) + len(b)
+    (d / "raw.json").write_text(json.dumps(meta))
+    return meta
+
+
+
 @app.websocket("/ws")
 async def ws(sock: WebSocket, key: str = "", model: str = "", side: str = "right", size: int = 640, keep: int = 0, rec: int = 0):
     """the page sends JPEG frames, one at a time; each answer: boxes, moves so far, whether a move is being judged"""
@@ -133,6 +162,7 @@ async def ws(sock: WebSocket, key: str = "", model: str = "", side: str = "right
     rec_dir, n_rec = out / "rec", 0
     if rec:
         rec_dir.mkdir(parents=True)
+        await sock.send_text(json.dumps({"folder": out.name}))  # where the camera's own video goes (/api/raw)
 
     def feed():
         while (f := frames.get()) is not None:
