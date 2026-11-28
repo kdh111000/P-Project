@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 import db
 import match
+import vl
 from track import NEW, REGISTERED, UNSURE, Track
 
 ROOT = Path(__file__).resolve().parent
@@ -246,9 +247,14 @@ def draw(bgr, dets, lines):
     return np.array(im)[..., ::-1]
 
 
+def who(e):
+    return {REGISTERED: e["item"], NEW: e["item"], UNSURE: f"{e['item']} ({', '.join(e['candidates'])} 일 수 있음)"}[e["kind"]]
+
+
 def line(e):
-    who = {REGISTERED: e["item"], NEW: e["item"], UNSURE: f"{e['item']} ({', '.join(e['candidates'])} 일 수 있음)"}[e["kind"]]
-    return f"{e['to'][11:19]} {'입고' if e['action'] == 'in' else '출고'} · {e['kind']} · {who} · {e['p']:.2f}{' · ' + e['twin'] + '와 같은 옷 한 벌 더' if e['twin'] else ''}"
+    """one move for the screen and the log; asked to Qwen: what the matcher alone said beside what Qwen made of it"""
+    s = f"{e['to'][11:19]} {'입고' if e['action'] == 'in' else '출고'} · {e['kind']} · {who(e)} · {e['p']:.2f}{' · ' + e['twin'] + '와 같은 옷 한 벌 더' if e['twin'] else ''}"
+    return s + (f" · [Qwen 없이: 확인필요 {e['without']} | Qwen: {e['vl']}]" if "vl" in e else "")
 
 
 def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, closet=None, held=None, on_frame=None, on_move=None):
@@ -268,7 +274,8 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
         except Exception as x:  # no network: the last pull is used
             print("DB 연결 실패, 마지막으로 받은 목록을 씀:", type(x).__name__, x, flush=True)
     mine = registered(cid) if closet is None else closet
-    t = Track(mine, out, match.decide, match.MARGIN, match.twins(mine))
+    t = Track(mine, out, match.decide, vl.MARGIN if vl.on() else match.MARGIN, match.twins(mine))
+    folders = garments(cid) if closet is None else {}  # registration photos, for the VL
     print(f"등록된 옷 {len(t.registered)}벌. 시작합니다.", flush=True)
     ev, todo, lines = Events(side), queue.Queue(), [f"등록 {len(t.registered)}벌 · 옷장은 {'오른쪽' if side == 'right' else '왼쪽'} · q: 종료"]
 
@@ -287,6 +294,21 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
                 e = t.move(action, [x[ok] for x in frames], start, end, crop=name)
                 if e is None:  # the same garment going the same way again: still that move
                     continue
+                cands = {k: [imread(p) for p in photos(folders[k])] for k in e["candidates"] if k in folders}
+                if e["kind"] == UNSURE and cands and vl.on():
+                    try:
+                        ans = vl.ask(cv2.imread(str(Path(out) / name)), cands)
+                        said = ans or "모름"
+                    except Exception as x:  # the user is asked, as without the VL
+                        print("VL 실패:", type(x).__name__, x, flush=True)
+                        ans, said = None, "실패"
+                    if ans not in (None, NEW, e["candidates"][0]):  # it named another garment than the most alike: the user decides
+                        ans, said = None, f"{ans}? (1순위와 달라 사용자에게)"
+                    without = who(e)
+                    if ans:
+                        t.resolve(e["item"], ans, by="qwen")
+                        e = {**e, "item": e["item"] if ans == NEW else ans, "kind": NEW if ans == NEW else REGISTERED, "candidates": []}
+                    e = {**e, "vl": said, "without": without}
                 print(line(e), flush=True)
                 if db.on():
                     try:

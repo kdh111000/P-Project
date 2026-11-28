@@ -10,6 +10,7 @@ import numpy as np
 
 REGISTERED, NEW, UNSURE = "등록", "미등록", "확인필요"
 AGAIN = 2.0  # s: the same garment going the same way again this soon is still the same move
+DOOR = "@문"  # key + DOOR: how a registered garment looked at the door the last time it was surely seen
 
 
 class Track:
@@ -60,15 +61,22 @@ class Track:
                 g = s.get(e["item"], {e["item"]}) | s.get(e["twin"], {e["twin"]})
                 for k in g:
                     s[k] = g
+        for k in self.registered:  # its door look is the same garment
+            g = s.get(k, {k}) | {k + DOOR}
+            for j in g:
+                s[j] = g
         return s
 
     def closet(self):
-        """everything a garment at the door is compared with: the registered photos, and how the unregistered ones looked passing the door"""
+        """everything a garment at the door is compared with: the registered photos, how a registered garment looked at the door
+        the last time it was surely seen (cut-out photos and crops in the hand are far apart: door test 88% -> 98% right),
+        and how the unregistered ones looked passing the door the first time"""
         v = dict(self.registered)
         for e in self.moves():
-            if e["item"] not in v and (self.out / e["frames"]).exists():  # a guess never becomes what a registered garment looks like
+            k = e["item"] + DOOR if e["item"] in self.registered and not e["odd"] else e["item"]
+            if (k.endswith(DOOR) or k not in v) and (self.out / e["frames"]).exists():  # a guess never becomes a registered look
                 with np.load(self.out / e["frames"]) as z:
-                    v[e["item"]] = [z[k] for k in z.files]
+                    v[k] = [z[n] for n in z.files]
         return v
 
     def move(self, action, frames, start, end, crop=None):
@@ -77,6 +85,7 @@ class Track:
         now, same, twin, odd, cands = self.items(), self.same(), None, False, []
         for seen in (self.registered, self.closet()):  # the photos first: what passed the door before was seen less well
             key, p, alike = self.decide(frames, seen, same)
+            key, alike = key and key.removesuffix(DOOR), list(dict.fromkeys(k.removesuffix(DOOR) for k in alike))
             if sure := key is not None and p >= .5 + self.margin:
                 break
         if sure:
@@ -103,11 +112,11 @@ class Track:
         return self._add({"item": item, "kind": kind, "action": action, "start": start, "end": end, "from": stamp(start), "to": stamp(end),
                           "p": round(float(p), 3), "candidates": cands, "odd": odd, "twin": twin, "new": not sure or twin is not None, "frames": name, "crop": crop})
 
-    def resolve(self, item, as_):
-        """the user (or the inside camera) says what an unsure item is: a registered key, or NEW"""
+    def resolve(self, item, as_, by="user"):
+        """the user (or the inside camera, or Qwen: by) says what an unsure item is: a registered key, or NEW"""
         assert as_ == NEW or as_ in self.registered, as_
         assert any(e.get("item") == item and e["new"] for e in self.log), item
-        return self._add({"resolve": item, "as": as_, "time": time.time()})
+        return self._add({"resolve": item, "as": as_, "time": time.time(), "by": by})
 
 
 if __name__ == "__main__":
@@ -151,4 +160,9 @@ if __name__ == "__main__":
         assert {t.move("in", like(shirt, .99), x, x + 1)["item"] for x in (20, 30)} == {"a", "b"}
         assert t.move("in", like(shirt, .99), 40, 41)["item"] == "U1"  # a third
         assert new({}, Path(d) / "empty").move("in", [shirt[None]], 1, 2)["kind"] == NEW
+        t = new({"shirt": [shirt[None]]}, Path(d) / "door")  # crumpled in the hand it is far from its photo...
+        assert t.move("out", [(.7 * shirt + .714 * base[6])[None]], 1, 2)["item"] == "shirt"
+        e = t.move("in", [(.3 * shirt + .954 * base[6])[None]], 10, 11)  # ...but near how it looked at the door
+        assert (e["item"], e["kind"]) == ("shirt", REGISTERED) and t.items()["shirt"]["inside"], e
+        assert new({"shirt": [shirt[None]]}, Path(d) / "door2").move("in", [(.3 * shirt + .954 * base[6])[None]], 1, 2)["kind"] != REGISTERED
     print("ok")
