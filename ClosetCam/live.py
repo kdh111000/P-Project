@@ -5,6 +5,7 @@ Any camera whose picture has the closet on its left or right edge and the user o
   python live.py --state                           what is in the closet, what is out, and since when
   python live.py --resolve U2 이름|미등록            settle an unsure garment"""
 import argparse, json, queue, shutil, sys, threading, time
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 import cv2
@@ -16,6 +17,8 @@ from track import NEW, REGISTERED, UNSURE, Track
 
 ROOT = Path(__file__).resolve().parent
 OUT, MINE, UPLOADS, HELD, POSE = ROOT / "doorcam", ROOT / "registered", ROOT / "uploads", ROOT / "models" / "held.pt", ROOT / "match" / "pose.pt"
+EVENTS = ROOT / "events.jsonl"  # every call the camera makes, all sessions, for the other parts of Fitmate (camweb /api/events)
+_events = threading.Lock()
 if not HELD.exists():  # models/held.pt: this PC's own 26 (fine-tuned on its closet scenes, never on GitHub); else the public one
     HELD = ROOT / "match" / "held.pt"
 VIEWS = ("front", "back", "side")
@@ -88,6 +91,24 @@ def imread(p):  # cv2.imread fails silently on Korean paths
 def photos(d):
     """registration photos of one garment, front / back / side"""
     return [p for v in VIEWS for p in sorted(d.glob(f"{v}.*"))[:1]]
+
+
+def stamp(t):
+    return datetime.fromtimestamp(t).astimezone().isoformat(timespec="milliseconds")
+
+
+def event(out, held, action, start, end, crop, e=None):
+    """one call as the other parts read it (README: 판정 로그). e: the move from Track.move (None: not a garment)"""
+    c = Path(out) / crop
+    v = {"time": stamp(end), "start": stamp(start), "session": Path(out).name, "model": Path(held).stem, "action": action,
+         "result": "옷 아님", "garment": None, "db_id": None, "p": None, "candidates": [], "twin": None, "qwen": None,
+         "crop": c.relative_to(ROOT).as_posix() if c.is_relative_to(ROOT) else str(c)}
+    if e:
+        v.update(result=e["kind"], garment=e["item"], db_id=db.ids().get(e["item"]), p=e["p"], candidates=e["candidates"], twin=e["twin"],
+                 qwen={"answer": e["vl"], "without": e["without"]} if "vl" in e else None)
+    with _events, EVENTS.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(v, ensure_ascii=False) + "\n")
+    return v
 
 
 def garments(cid=None):
@@ -292,6 +313,7 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
                 ok = match.is_garment(frames) >= .5
                 if ok.mean() < .5:
                     print(f"옷이 아니어서 버림: {name} ({ok.sum()}/{len(ok)}장)", flush=True)
+                    event(out, held, action, start, end, name)
                     continue
                 e = t.move(action, [x[ok] for x in frames], start, end, crop=name)
                 if e is None:  # the same garment going the same way again: still that move
@@ -312,6 +334,7 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
                         e = {**e, "item": e["item"] if ans == NEW else ans, "kind": NEW if ans == NEW else REGISTERED, "candidates": []}
                     e = {**e, "vl": said, "without": without}
                 print(line(e), flush=True)
+                event(out, held, action, start, end, name, e)
                 if db.on():
                     try:
                         db.push(e)

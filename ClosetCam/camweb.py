@@ -104,6 +104,26 @@ def api_collect_judge(key: str = Form(""), id: str = Form(...), verdict: str = F
     return {"left": len(collect.pending()), "approved": collect.approved()}
 
 
+
+@app.get("/api/events")
+def api_events(key: str = "", since: str = "", limit: int = 500):
+    """the camera's calls (live.EVENTS), oldest first: only those after since (a "time" from an earlier answer), the newest limit"""
+    check(key)
+    lines = live.EVENTS.read_text(encoding="utf-8").splitlines() if live.EVENTS.exists() else []  # ponytail: whole file, fine to ~100k calls
+    ev = [e for e in map(json.loads, filter(str.strip, lines)) if e["time"] > since]
+    return {"events": ev[-max(1, min(limit, 5000)):]}
+
+
+@app.get("/api/crop")
+def api_crop(key: str = "", path: str = ""):
+    """the crops a call was made on (an event's "crop")"""
+    check(key)
+    f = (live.ROOT / path).resolve()
+    if f.suffix != ".jpg" or not f.is_relative_to(OUT.resolve()) or not f.is_file():
+        raise HTTPException(404, "없는 사진입니다.")
+    return FileResponse(f)
+
+
 @app.post("/api/register")
 async def api_register(key: str = Form(""), name: str = Form(...), front: UploadFile = File(...), back: UploadFile = File(...),
                        side: UploadFile = File(...)):

@@ -63,12 +63,43 @@ GitHub에는 코드와 공개 자료로 학습한 모델만 있습니다. 사용
 | `test_db.py` | 가짜 Supabase 서버로 `db.py` 시험, `python test_db.py` |
 | `vl.py` | 확인필요를 로컬 Qwen3-VL(아래 서버, 8090)에 묻기. 서버가 꺼져 있으면 아무것도 안 함 |
 | `test_vl.py` | 가짜 서버로 `vl.py` 시험, `python test_vl.py` |
+| `test_events.py` | 판정 로그와 `/api/events`·`/api/crop` 시험 |
 | `camweb.py`, `camweb.html` | 브라우저 카메라 페이지(https, key 필요). 등록·모델 선택·녹화·실시간 판정 |
 | `qwen.bat` | 로컬 Qwen3-VL 서버(llama.cpp, 127.0.0.1:8090). 없으면 받아서 띄움 |
 | `collect.py`, `camweb_review.html` | "학습용 장면 저장" 장면 → `/review`에서 사람이 맞음/옷 아님/버림 → `collect/approved` |
 | `more_data.py` | 녹화에서 학습 장면 만들기(`label`), 빈 옷걸이 녹화에 ATR 옷 합성(`synth`, `yolo/raw/data` 필요) |
 | `finetune.py` | 확인한 장면으로 26 미세 학습(`test` / `final <이름>`), CPU. `collect/synth_base` 필요 |
 | `pack_local.bat` | GitHub에 없는 이 PC 자료를 `fitmate_local.tar`로 묶음 |
+
+### 판정 로그 (다른 파트 연결)
+카메라가 내린 판정은 모든 세션 것이 `events.jsonl`(한 줄 = 판정 1건)에 쌓입니다. 다른 파트는 camweb 서버에서 가져갑니다(key 필요).
+```
+GET https://<이 PC 주소>:8000/api/events?key=...&since=<마지막으로 받은 time>&limit=500   → {"events": [...]} 오래된 것부터
+GET https://<이 PC 주소>:8000/api/crop?key=...&path=<event의 crop>                         → 판정에 쓴 조각 사진(jpg)
+```
+`since`에 마지막으로 받은 `time`을 넣고 몇 초마다 부르면 새 판정만 옵니다.
+
+| 칸 | 뜻 |
+|---|---|
+| `time`, `start` | 입출고가 끝난/시작한 시각 (ISO, 시간대 포함) |
+| `session`, `model` | camweb 세션 폴더, 쓴 26 |
+| `action` | `in` 입고 / `out` 출고 |
+| `result` | `등록` / `미등록` / `확인필요` / `옷 아님`(옷이 아니라서 버린 것) |
+| `garment` | 등록 옷 이름, 미등록·확인필요면 `U번호` |
+| `db_id` | 팀 DB `clothes.id` (DB에서 받은 옷일 때만) |
+| `p` | 등록된 옷일 확률 |
+| `candidates` | 확인필요일 때 후보 옷(가까운 순) |
+| `twin` | 똑같이 생긴 다른 옷이 있을 때 그 옷 |
+| `qwen` | Qwen에 물었으면 `{"answer": Qwen 답, "without": Qwen 없이 나온 판정}` |
+| `crop` | 판정에 쓴 조각 사진 경로(`/api/crop`) |
+
+```json
+{"time": "2026-11-29T15:02:11.420+09:00", "start": "2026-11-29T15:02:09.900+09:00", "session": "20261129-150130-112233", "model": "held",
+ "action": "out", "result": "등록", "garment": "top-03", "db_id": "3ad4…", "p": 0.91, "candidates": [], "twin": null, "qwen": null,
+ "crop": "doorcam_web/20261129-150130-112233/track/20261129-150211-420.jpg"}
+```
+- 사람이 나중에 고친 판정(`--resolve`)과 프레임마다의 상자는 들어가지 않습니다(상자는 녹화로 다시 볼 수 있음).
+- 시험: `python test_events.py`
 
 ### 문 앞 모습 함께 비교
 등록 사진(배경 제거)과 손에 든 옷 조각은 많이 달라 보입니다. 그래서 등록된 옷이 문 앞에서 한 번 **확실히** 판정되면 그때 조각을 그 옷의 "문 앞 모습"으로 두고, 사진만으로 애매할 때 함께 비교합니다(`track.py`의 `DOOR`).
