@@ -98,6 +98,22 @@ GET https://<이 PC 주소>:8000/api/crop?key=...&path=<event의 crop>          
  "action": "out", "result": "등록", "garment": "top-03", "db_id": "3ad4…", "p": 0.91, "candidates": [], "twin": null, "qwen": null,
  "crop": "doorcam_web/20261129-150130-112233/track/20261129-150211-420.jpg"}
 ```
+받는 쪽 예시(Python, `pip install requests`). 3초마다 새 판정만 받아 출력합니다. key는 이 PC의 `camweb_key.txt`(서버 창에 찍히는 주소의 `key=` 뒤)입니다.
+```python
+import time, requests, urllib3
+urllib3.disable_warnings()                      # 자체 서명 인증서라 확인을 끔
+URL, KEY = "https://<이 PC 주소>:8000", "<camweb key>"
+since = ""
+while True:
+    r = requests.get(f"{URL}/api/events", params={"key": KEY, "since": since}, verify=False, timeout=10)
+    for e in r.json()["events"]:
+        print(e["time"], e["action"], e["result"], e["garment"], e["db_id"])
+        # 조각 사진: requests.get(f"{URL}/api/crop", params={"key": KEY, "path": e["crop"]}, verify=False).content  (jpg)
+        since = e["time"]
+    time.sleep(3)
+```
+JavaScript(Node 18+): `NODE_TLS_REJECT_UNAUTHORIZED=0`으로 실행하고 `const {events} = await (await fetch(`${URL}/api/events?key=${KEY}&since=${since}`)).json()`.
+
 - 사람이 나중에 고친 판정(`--resolve`)과 프레임마다의 상자는 들어가지 않습니다(상자는 녹화로 다시 볼 수 있음).
 - 시험: `python test_events.py`
 
