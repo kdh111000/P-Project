@@ -1,6 +1,7 @@
 @echo off
-rem Laptop: double-click. First run installs everything (about 3 GB download), later runs start at once.
-rem run.bat left = the closet is on the left of the picture (default: right)
+rem Double-click: the camweb page (phone or laptop camera in a browser) + the local Qwen in its own window.
+rem   run.bat live [left^|right]   the older way: this PC's camera in a window (live.py)
+rem First run installs everything (about 3 GB), qwen.bat about 5.8 GB more; later runs start at once.
 cd /d "%~dp0"
 set PYTHONUTF8=1
 if not exist .venv\ok (
@@ -20,7 +21,11 @@ if not exist .venv\ok (
   git lfs pull 2>nul
   echo ok> .venv\ok
 )
-set SIDE=%1
-if "%SIDE%"=="" set SIDE=right
-.venv\Scripts\python live.py --side %SIDE%
+if /i "%1"=="live" (
+  if "%2"=="" (.venv\Scripts\python live.py --side right) else (.venv\Scripts\python live.py --side %2)
+  pause
+  exit /b
+)
+if /i not "%FITMATE_VL%"=="0" start "Qwen3-VL" cmd /c qwen.bat
+.venv\Scripts\python camweb.py
 pause

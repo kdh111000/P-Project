@@ -1,6 +1,6 @@
 """확인필요 (unsure) moves -> asked once to the local Qwen3-VL (llama-server, the one extract.py uses; nothing leaves this PC)
 before the user is: the crops of the move vs the registration photos of the candidates.
-Server down or FITMATE_VL=0 -> off: the user is asked, as before. Start it as extract.py says (port 8090)."""
+Server down or FITMATE_VL=0 -> off: the user is asked, as before. Start it with qwen.bat (port 8090)."""
 import base64, json, os
 import cv2
 import requests

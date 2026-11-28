@@ -15,7 +15,9 @@ import vl
 from track import NEW, REGISTERED, UNSURE, Track
 
 ROOT = Path(__file__).resolve().parent
-OUT, MINE, UPLOADS, HELD, POSE = ROOT / "doorcam", ROOT / "registered", ROOT / "uploads", ROOT / "match" / "held.pt", ROOT / "match" / "pose.pt"
+OUT, MINE, UPLOADS, HELD, POSE = ROOT / "doorcam", ROOT / "registered", ROOT / "uploads", ROOT / "models" / "held.pt", ROOT / "match" / "pose.pt"
+if not HELD.exists():  # models/held.pt: this PC's own 26 (fine-tuned on its closet scenes, never on GitHub); else the public one
+    HELD = ROOT / "match" / "held.pt"
 VIEWS = ("front", "back", "side")
 SEE_EVERY = .1     # s between looked-at frames
 # ponytail: set on one 45 s video; check on the mounted camera

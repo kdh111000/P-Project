@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>학습 장면 확인</title>
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --ink: #1d2330; --sub: #5d6676; --line: #dde1e8;
+          --held: #16a34a; --arm: #2563eb; --hanger: #dc2626; --ok: #16a34a; --no: #ea580c; --drop: #6b7280; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #12151b; --card: #1b2029; --ink: #e8ebf0; --sub: #9aa3b2; --line: #2c3340; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, "Malgun Gothic", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 0; }
+  .top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; margin-bottom: 10px; }
+  .sub { color: var(--sub); font-size: 13px; }
+  .stage { position: relative; background: #000; border-radius: 10px; overflow: hidden; }
+  .stage img { display: block; width: 100%; height: auto; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 13px; color: var(--sub); margin: 6px 2px 0; }
+  .tools button { background: var(--card); color: var(--ink); border: 1px solid var(--line); padding: 4px 10px; font-weight: 600; }
+  .info { margin: 8px 2px; font-size: 14px; }
+  .info b { font-variant-numeric: tabular-nums; }
+  .btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  button { font: inherit; font-weight: 700; padding: 14px 8px; border-radius: 8px; border: 0; color: #fff; cursor: pointer; }
+  button small { display: block; font-weight: 400; opacity: .85; font-size: 12px; }
+  #ok { background: var(--ok); } #no { background: var(--no); } #drop { background: var(--drop); }
+  button:disabled { opacity: .4; cursor: default; }
+  .help { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-top: 14px; font-size: 13.5px; color: var(--sub); }
+  .help b { color: var(--ink); }
+  .empty { padding: 60px 20px; text-align: center; color: var(--sub); background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  .err { color: var(--hanger); }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <h1>학습 장면 확인</h1>
+    <span class="sub">남은 장면 <b id="left">-</b> · 학습에 쓸 장면 <b id="approved">-</b> · <a id="back" href="/">카메라 화면으로</a></span>
+  </div>
+  <div id="view">
+    <div class="stage"><img id="img" alt="저장된 장면"><canvas id="box"></canvas></div>
+    <div class="tools"><span>박스 클릭 = 지우기 / 되살리기 · 그림 위에서 끌기 = 든 옷 박스 새로 그리기</span><button id="reset">원래대로</button></div>
+    <div class="info" id="info"></div>
+    <div class="btns">
+      <button id="ok">맞음<small>보이는 박스로 저장 (1)</small></button>
+      <button id="no">옷 아님<small>든 옷 박스만 지움 (2)</small></button>
+      <button id="drop">버림<small>학습에 안 씀 (3)</small></button>
+    </div>
+  </div>
+  <div class="empty" id="none" hidden>확인할 장면이 없습니다. 카메라 화면에서 "학습용 장면 저장"을 켜고 옷을 넣고 꺼내 보세요.</div>
+  <div class="help">
+    <b>고치는 법</b>: 걸린 옷·문·몸 같은 엉뚱한 것에 붙은 박스는 클릭해 지우고(회색 점선), 손에 든 옷인데 박스가 없으면 끌어서 그린 뒤(초록 점선) <b>맞음</b>.
+    초록 박스는 <b>손에 든 옷</b>에만 남깁니다. 옷걸이에 걸린 옷, 입은 옷은 지웁니다.
+    <b>옷 아님</b>: 초록 박스를 전부 지우고 저장하는 지름길.
+    <b>버림</b>: 흐려서 판단이 애매하거나, 얼굴만 찍힌 장면처럼 쓸 수 없을 때.
+  </div>
+  <div class="sub" id="msg"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const key = new URLSearchParams(location.search).get("key") || "";
+const q = s => `${s}${s.includes("?") ? "&" : "?"}key=${encodeURIComponent(key)}`;
+const COL = ["#16a34a", "#2563eb", "#dc2626"], NAME = ["옷", "팔", "옷걸이"];
+const KIND = { in: "입고 장면", out: "출고 장면", empty: "옷 없는 장면", filled: "놓친 장면 (박스를 앞뒤로 채움)", track: "든 옷 장면", lone: "잠깐 뜬 박스 (옷이 아닐 수 있음)" };
+let items = [], cur = null, busy = false, B = [], drag = null;  // B: {c, p, x0, y0, x1, y1, off, mine}
+$("back").href = q("/");
+
+async function load() {
+  const r = await fetch(q("/api/collect"));
+  if (!r.ok) { $("msg").textContent = r.status === 403 ? "주소에 올바른 key가 없습니다." : "서버 오류"; $("msg").className = "err"; return; }
+  const j = await r.json(); items = j.items; $("approved").textContent = j.approved; next();
+}
+
+async function next() {
+  $("left").textContent = items.length;
+  $("view").hidden = !items.length; $("none").hidden = !!items.length;
+  if (!items.length) return;
+  cur = items[0];
+  const m = await (await fetch(q(`/api/collect/item?id=${encodeURIComponent(cur)}`))).json();
+  const orig = () => m.boxes.map(([c, p, x0, y0, x1, y1]) => ({ c, p, x0, y0, x1, y1, off: false, mine: false }));
+  B = orig(); $("reset").onclick = () => { B = orig(); draw(); };
+  $("img").onload = draw;
+  $("img").src = q(`/api/collect/img?id=${encodeURIComponent(cur)}`);
+  const held = m.boxes.filter(b => b[0] === 0).length;
+  $("info").innerHTML = `<b>${KIND[m.kind] || m.kind}</b> · 든 옷 박스 ${held}개 · 모델 ${m.model.replace(/[<&]/g, "")} · ${new Date(m.time * 1000).toLocaleString("ko-KR")}`;
+}
+
+function draw() {
+  const c = $("box"), r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  c.width = r.width * dpr; c.height = r.height * dpr;
+  const g = c.getContext("2d"); g.scale(dpr, dpr); g.font = "600 14px system-ui, 'Malgun Gothic'"; g.textBaseline = "top";
+  for (const b of drag?.box ? [...B, drag.box] : B) {
+    const x = b.x0 * r.width, y = b.y0 * r.height, t = b.off ? "지움" : b.mine ? `${NAME[b.c]} (직접)` : b.p === 0 ? `${NAME[b.c]} (채움)` : `${NAME[b.c]} ${b.p.toFixed(2)}`;
+    const col = b.off ? "#9ca3af" : COL[b.c];
+    g.setLineDash(b.off || b.mine ? [8, 5] : []); g.lineWidth = 3; g.strokeStyle = col; g.strokeRect(x, y, (b.x1 - b.x0) * r.width, (b.y1 - b.y0) * r.height);
+    g.setLineDash([]); g.fillStyle = col; g.fillRect(x - 1.5, Math.max(0, y - 20), g.measureText(t).width + 8, 20);
+    g.fillStyle = "#fff"; g.fillText(t, x + 3, Math.max(0, y - 20) + 3);
+  }
+}
+
+// click a box: strike it out (again: back in; one drawn by hand: gone). Drag on the picture: a new held-garment box
+const at = e => { const r = $("box").getBoundingClientRect(); return [Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1), Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1)]; };
+$("box").onpointerdown = e => { $("box").setPointerCapture(e.pointerId); drag = { a: at(e) }; };
+$("box").onpointermove = e => {
+  if (!drag) return;
+  const [x, y] = at(e), [ax, ay] = drag.a;
+  drag.box = Math.abs(x - ax) + Math.abs(y - ay) > .02 ? { c: 0, x0: Math.min(x, ax), y0: Math.min(y, ay), x1: Math.max(x, ax), y1: Math.max(y, ay), mine: true } : null;
+  draw();
+};
+$("box").onpointerup = e => {
+  if (!drag) return;
+  const box = drag.box, [x, y] = drag.a; drag = null;
+  if (box) B.push(box);
+  else {  // the smallest box under the click
+    const hit = B.filter(b => b.x0 <= x && x <= b.x1 && b.y0 <= y && y <= b.y1).sort((a, b) => (a.x1 - a.x0) * (a.y1 - a.y0) - (b.x1 - b.x0) * (b.y1 - b.y0))[0];
+    if (hit?.mine) B.splice(B.indexOf(hit), 1); else if (hit) hit.off = !hit.off;
+  }
+  draw();
+};
+
+async function judge(verdict) {
+  if (busy || !cur) return;
+  busy = true; ["ok", "no", "drop"].forEach(i => $(i).disabled = true);
+  const f = new FormData(); f.append("key", key); f.append("id", cur); f.append("verdict", verdict);
+  f.append("boxes", JSON.stringify(B.filter(b => !b.off).map(b => [b.c, b.x0, b.y0, b.x1, b.y1])));
+  const r = await fetch("/api/collect/judge", { method: "POST", body: f });
+  if (r.ok) { const j = await r.json(); $("approved").textContent = j.approved; items.shift(); }
+  else { $("msg").textContent = "판정 실패: 다시 눌러 보세요."; }
+  busy = false; ["ok", "no", "drop"].forEach(i => $(i).disabled = false);
+  next();
+}
+$("ok").onclick = () => judge("ok"); $("no").onclick = () => judge("nogarment"); $("drop").onclick = () => judge("drop");
+addEventListener("keydown", e => ({ "1": "ok", "2": "nogarment", "3": "drop" })[e.key] && judge(({ "1": "ok", "2": "nogarment", "3": "drop" })[e.key]));
+addEventListener("resize", () => cur && draw());
+load();
+</script>
+</body>
+</html>

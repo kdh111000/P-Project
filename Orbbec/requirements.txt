@@ -10,3 +10,7 @@ pillow
 rembg
 onnxruntime
 requests
+fastapi
+uvicorn[standard]
+python-multipart
+cryptography

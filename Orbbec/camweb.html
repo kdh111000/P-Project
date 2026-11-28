@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>옷장 문 카메라 시험</title>
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --ink: #1d2330; --sub: #5d6676; --line: #dde1e8; --accent: #2563eb;
+          --held: #16a34a; --arm: #2563eb; --hanger: #dc2626; --reg: #16a34a; --new: #ea580c; --unsure: #ca8a04; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12151b; --card: #1b2029; --ink: #e8ebf0; --sub: #9aa3b2; --line: #2c3340; --accent: #60a5fa; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, "Malgun Gothic", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; grid-template-columns: 300px 1fr; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  label { display: block; font-size: 13px; color: var(--sub); margin: 12px 0 4px; }
+  select, input[type=text], button { width: 100%; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+          background: var(--card); color: var(--ink); }
+  button { cursor: pointer; font-weight: 600; margin-top: 14px; }
+  button.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .note { font-size: 12.5px; color: var(--sub); margin-top: 4px; min-height: 1em; }
+  .row { display: flex; gap: 8px; } .row > * { flex: 1; }
+  .stage { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; }
+  .stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .stage .idle[hidden] { display: none; }
+  .stage .idle { position: absolute; inset: 0; display: grid; place-items: center; color: #aab; padding: 20px; text-align: center; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--sub); margin: 10px 2px; }
+  .bar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .key { display: inline-flex; align-items: center; gap: 5px; } .key i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  ol { list-style: none; margin: 0; padding: 0; }
+  ol li { padding: 8px 10px; border-left: 4px solid var(--line); background: var(--bg); border-radius: 6px; margin-top: 6px; font-size: 14px; }
+  li.등록 { border-color: var(--reg); } li.미등록 { border-color: var(--new); } li.확인필요 { border-color: var(--unsure); }
+  .err { color: var(--hanger); }
+  details summary { cursor: pointer; font-weight: 600; }
+  input[type=file] { font-size: 13px; width: 100%; }
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <div class="card">
+      <h1>옷장 문 카메라 시험</h1>
+      <div class="note">카메라와 모델을 고른 뒤 시작하세요.</div>
+      <label for="cam">카메라</label>
+      <select id="cam"></select>
+      <div class="note" id="camNote"></div>
+      <label for="model">모델 (26)</label>
+      <select id="model"></select>
+      <div class="note" id="modelNote"></div>
+      <div class="row">
+        <div><label for="side">옷장 위치(화면 기준)</label>
+          <select id="side"><option value="right">오른쪽</option><option value="left">왼쪽</option></select></div>
+        <div><label for="size">탐지 크기</label>
+          <select id="size"><option>640</option><option>960</option><option>480</option></select></div>
+      </div>
+      <label for="mode">카메라 설정</label>
+      <select id="mode"><option value="imx662">IMX662 기준 (1920×1080, 최대 60fps)</option><option value="hd">기본 (1280×720)</option></select>
+      <div class="note">화질(어두운 곳, 역광)은 흉내 낼 수 없고, 해상도와 프레임만 맞춥니다.</div>
+      <label><input type="checkbox" id="weak"> 약한 박스도 보기</label>
+      <label><input type="checkbox" id="keep"> 학습용 장면 저장 (이 PC에만)</label>
+      <div class="note">카메라가 고정돼 있을 때 입출고 장면만 모읍니다. <a id="reviewLink" href="#">확인하러 가기</a> <span id="pending"></span></div>
+      <label><input type="checkbox" id="rec" checked> 녹화 (받은 화면 전부, 이 PC에만, 기본 켜짐)</label>
+      <div class="note">시험용입니다. 입출고 순서를 따로 적어 주세요. doorcam_web/시각/rec 에 저장됩니다.</div>
+      <button class="go" id="start">시작</button>
+      <button id="stop" disabled>멈춤</button>
+      <div class="note" id="status"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <details>
+        <summary>옷 등록 (앞·뒤·옆 사진 3장)</summary>
+        <form id="reg">
+          <label for="rname">이름</label><input type="text" id="rname" name="name" required>
+          <label>앞</label><input type="file" name="front" accept="image/*" capture="environment" required>
+          <label>뒤</label><input type="file" name="back" accept="image/*" capture="environment" required>
+          <label>옆</label><input type="file" name="side" accept="image/*" capture="environment" required>
+          <button>등록</button>
+          <div class="note" id="regNote"></div>
+        </form>
+      </details>
+      <div class="note" id="regList"></div>
+    </div>
+  </section>
+  <section>
+    <div class="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="idle" id="idle">카메라를 고르고 시작을 누르세요.</div>
+    </div>
+    <div class="bar">
+      <span class="key"><i style="background:var(--held)"></i>든 옷</span>
+      <span class="key"><i style="background:var(--arm)"></i>팔</span>
+      <span class="key"><i style="background:var(--hanger)"></i>옷걸이</span>
+      <b id="camset"></b>
+      <span>처리 <b id="fps">-</b> 장/초</span>
+      <span>서버 <b id="ms">-</b> ms</span>
+      <span id="head"></span>
+      <span id="busy"></span>
+      <span id="kept"></span>
+    </div>
+    <div class="card">
+      <b>입출고 기록</b>
+      <div class="note">옷을 들고 옷장 쪽으로 가져가면 입고, 옷장에서 꺼내 나오면 출고로 남습니다.</div>
+      <ol id="moves"></ol>
+    </div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const key = new URLSearchParams(location.search).get("key") || "";
+const COLOR = () => { const s = getComputedStyle(document.documentElement); return ["--held", "--arm", "--hanger"].map(v => s.getPropertyValue(v).trim()); };
+const NAME = ["옷", "팔", "옷걸이"];
+let stream = null, sock = null, running = false, conf = .35, models = [], times = [];
+const cap = document.createElement("canvas");
+
+function say(id, text, bad) { $(id).textContent = text; $(id).classList.toggle("err", !!bad); }
+
+async function cameras() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    say("camNote", "이 주소에서는 브라우저가 카메라를 막습니다. https:// 로 접속하세요.", true); return;
+  }
+  let ds = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  if (ds.length && !ds[0].label) {  // names appear only after the first permission
+    try { (await navigator.mediaDevices.getUserMedia({ video: true })).getTracks().forEach(t => t.stop()); } catch (e) { }
+    ds = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  }
+  const was = $("cam").value;
+  $("cam").innerHTML = ds.map((d, i) => `<option value="${d.deviceId}">${d.label || "카메라 " + (i + 1)}</option>`).join("");
+  if ([...$("cam").options].some(o => o.value === was)) $("cam").value = was;
+  say("camNote", ds.length ? `카메라 ${ds.length}대` : "카메라가 없습니다. 연결하거나 브라우저의 카메라 권한을 켜세요.", !ds.length);
+  $("start").disabled = !ds.length || running;
+}
+
+async function load() {
+  const r = await fetch(`/api/models?key=${encodeURIComponent(key)}`);
+  if (!r.ok) { say("status", r.status === 403 ? "주소에 올바른 key가 없습니다. 서버 창에 나온 주소로 접속하세요." : "서버 오류", true); $("start").disabled = true; return false; }
+  const j = await r.json(); models = j.models; conf = j.conf;
+  $("model").innerHTML = models.map((m, i) => `<option value="${i}">${m.name}</option>`).join("");
+  $("model").onchange = () => say("modelNote", models[$("model").value].note);
+  $("model").onchange();
+  showRegistered(j.registered);
+  $("reviewLink").href = `/review?key=${encodeURIComponent(key)}`;
+  $("pending").textContent = j.pending ? `(확인 대기 ${j.pending}장)` : "";
+  return true;
+}
+function showRegistered(r) { say("regList", r.length ? `등록된 옷 ${r.length}벌: ${r.join(", ")}` : "등록된 옷이 없습니다. 모든 옷이 미등록으로 나옵니다."); }
+
+async function start() {
+  try {
+    // IMX662: 1920x1080 at most 60 frame/s (12 bit). A camera with less gives what it has, shown below.
+    const want = $("mode").value === "imx662" ? { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 } }
+                                              : { width: { ideal: 1280 }, height: { ideal: 720 } };
+    stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: $("cam").value }, ...want }, audio: false });
+  } catch (e) { say("status", "카메라를 열 수 없습니다: " + e.name + " (다른 프로그램이 쓰고 있지 않은지 확인)", true); return; }
+  const got = stream.getVideoTracks()[0].getSettings();
+  $("camset").textContent = `카메라 ${got.width}×${got.height} ${Math.round(got.frameRate || 0)}fps` +
+    ($("mode").value === "imx662" && (got.width < 1920 || got.height < 1080) ? " (IMX662보다 낮음)" : "");
+  const v = $("video"); v.srcObject = stream; await v.play();
+  $("idle").hidden = true; running = true; times = []; lock(true);
+  say("status", "모델 여는 중... (처음엔 수십 초)");
+  const q = new URLSearchParams({ key, model: models[$("model").value].name, side: $("side").value, size: $("size").value, keep: $("keep").checked ? 1 : 0, rec: $("rec").checked ? 1 : 0 });
+  sock = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?${q}`);
+  sock.onopen = send;
+  sock.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.error) { say("status", "멈춤: " + m.error, true); stop(); return; }
+    show(m); send();
+  };
+  sock.onclose = () => { if (running) { say("status", "서버 연결이 끊겼습니다.", true); stop(); } };
+  cameras();
+}
+
+function send() {
+  const v = $("video");
+  if (!running || sock.readyState !== 1 || !v.videoWidth) { if (running) setTimeout(send, 100); return; }
+  cap.width = 960; cap.height = Math.round(960 * v.videoHeight / v.videoWidth);
+  cap.getContext("2d").drawImage(v, 0, 0, cap.width, cap.height);
+  cap.toBlob(b => b && running && sock.readyState === 1 && sock.send(b), "image/jpeg", .85);
+}
+
+function show(m) {
+  const now = performance.now(); times = [...times.filter(t => now - t < 3000), now];
+  $("fps").textContent = (times.length / Math.min(3, (now - times[0]) / 1000 || 1)).toFixed(1);
+  $("ms").textContent = m.ms;
+  $("head").textContent = m.head;
+  $("busy").textContent = m.busy ? "판정 중..." : "";
+  $("kept").textContent = m.kept !== undefined ? `학습용 저장 ${m.kept}장` : "";
+  if (m.rec !== undefined) $("kept").textContent += ` 녹화 ${m.rec}장`;
+  say("status", "보는 중");
+  // boxes over the picture as shown (object-fit: contain)
+  const v = $("video"), c = $("overlay"), r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  c.width = r.width * dpr; c.height = r.height * dpr;
+  const g = c.getContext("2d"), s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+  const w = v.videoWidth * s, h = v.videoHeight * s, x0 = (r.width - w) / 2, y0 = (r.height - h) / 2, col = COLOR();
+  g.scale(dpr, dpr); g.font = "600 14px system-ui, 'Malgun Gothic'"; g.textBaseline = "top";
+  for (const [k, p, b] of m.dets) {
+    const weak = p < conf;
+    if (weak && !$("weak").checked) continue;
+    const x = x0 + b[0] * w, y = y0 + b[1] * h, bw = (b[2] - b[0]) * w, bh = (b[3] - b[1]) * h, t = `${NAME[k]} ${p.toFixed(2)}`;
+    g.globalAlpha = weak ? .5 : 1; g.setLineDash(weak ? [6, 4] : []); g.lineWidth = 3; g.strokeStyle = col[k]; g.strokeRect(x, y, bw, bh);
+    const tw = g.measureText(t).width + 8; g.fillStyle = col[k]; g.fillRect(x - 1.5, Math.max(0, y - 20), tw, 20);
+    g.fillStyle = "#fff"; g.fillText(t, x + 3, Math.max(0, y - 20) + 3);
+  }
+  $("moves").innerHTML = m.moves.map(l => `<li class="${l.split(" · ")[1] || ""}">${l.replace(/[<&]/g, ch => ch === "<" ? "&lt;" : "&amp;")}</li>`).join("");
+}
+
+function stop() {
+  running = false;
+  if (sock) sock.close();
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  $("video").srcObject = null; $("idle").hidden = false;
+  $("overlay").getContext("2d").clearRect(0, 0, $("overlay").width, $("overlay").height);
+  lock(false);
+  if (!$("status").classList.contains("err")) say("status", "멈춤");
+}
+function lock(on) { ["cam", "model", "side", "size", "mode", "keep", "rec"].forEach(i => $(i).disabled = on); $("start").disabled = on; $("stop").disabled = !on; }
+
+$("reg").onsubmit = async e => {
+  e.preventDefault();
+  const f = new FormData(e.target); f.append("key", key);
+  say("regNote", "등록 중... (처음엔 비교 모델을 여느라 오래 걸립니다)");
+  const r = await fetch("/api/register", { method: "POST", body: f }), j = await r.json();
+  if (!r.ok) { say("regNote", j.detail || "등록 실패", true); return; }
+  say("regNote", "등록했습니다. 다음 시작부터 반영됩니다."); e.target.reset(); showRegistered(j.registered);
+};
+$("start").onclick = start;
+$("stop").onclick = stop;
+navigator.mediaDevices?.addEventListener("devicechange", cameras);
+load().then(ok => ok && cameras());
+</script>
+</body>
+</html>

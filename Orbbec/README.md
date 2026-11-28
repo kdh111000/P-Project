@@ -1,17 +1,28 @@
 # 옷장 문 카메라 (옷 입출고 추적)
 
-노트북 내장 카메라로 바로 쓸 수 있습니다. 카메라 앞에서 옷을 꺼내거나 넣으면
-**옷을 찾고 → 입고/출고를 정하고 → 등록된 옷인지 판정해 → 시각과 함께 기록**합니다. 옷장 안 위치 감지는 이 프로그램의 범위가 아닙니다.
+휴대폰·노트북 카메라를 브라우저로 연결해 씁니다(`camweb.py`). 카메라 앞에서 옷을 꺼내거나 넣으면
+**옷을 찾고 → 입고/출고를 정하고 → 등록된 옷인지 판정해 → (애매하면 로컬 Qwen3-VL에 묻고) → 시각과 함께 기록**합니다. 옷장 안 위치 감지는 이 프로그램의 범위가 아닙니다.
 
-## 바로 실행 (Windows 노트북)
+## 바로 실행 (Windows)
 ```powershell
 git lfs install
 git clone -b orbbec_doorcam https://github.com/kdh111000/P-Project.git
 cd P-Project\Orbbec
-.un.bat
+.\run.bat
 ```
 - 첫 실행은 `.venv`를 만들고 필요한 것을 설치합니다(약 3 GB, Python 3.10~3.13 필요). 모델 파일(약 820 MB)은 Git LFS로 받습니다.
-- 옷장이 화면 **오른쪽**에 보이게 놓습니다. 왼쪽이면 `.un.bat left`. 끝내려면 `q`.
+- `run.bat`은 Qwen 창(`qwen.bat`)도 함께 엽니다. 첫 실행에 llama.cpp(Vulkan 빌드: AMD·NVIDIA·Intel)와 Qwen3-VL 모델(약 5.8 GB)을 `llamacpp\`로 받습니다. 이미 받은 폴더가 있으면 `$env:LLAMACPP="C:\...\llamacpp"`. Qwen 없이: `$env:FITMATE_VL="0"`.
+- 창에 찍힌 `https://<이 PC 주소>:8000/?key=...`를 카메라를 쓸 기기(같은 와이파이)의 브라우저로 엽니다. 자체 서명 인증서라 처음 한 번 경고가 나오면 "고급 → 계속". key는 `camweb_key.txt`에 있습니다.
+- 페이지에서: 옷 등록(앞·뒤·옆 3장) → 카메라·26 모델 고르기 → 시작. "녹화"를 켜면 받은 화면 전부를 `doorcam_web/<시각>/rec/`에 저장, "학습용 장면 저장"을 켜면 `/review`에서 확인할 장면을 모읍니다.
+- 예전 방식(이 PC 카메라를 창으로): `.\run.bat live` (옷장이 왼쪽이면 `.\run.bat live left`, 끝내려면 `q`).
+
+### 다른 PC로 그대로 옮기기
+GitHub에는 코드와 공개 자료로 학습한 모델만 있습니다. 사용자 영상으로 학습한 26(8차), 등록 옷 사진, 녹화, 확인한 학습 장면은 올리지 않으니 USB로 옮깁니다.
+1. 지금 PC의 작업 폴더에서 `pack_local.bat` → `fitmate_local.tar`(models·registered·db_cache·doorcam_web·collect·yolo\raw\data·camweb_key.txt 중 있는 것)
+2. 새 PC: 위 "바로 실행"의 clone 후, `Orbbec` 폴더에 tar를 두고 `tar -xf fitmate_local.tar` → `.\run.bat`
+3. 팀 DB를 쓰면 환경변수 3개(아래 "팀 DB 연결")를 새 PC에도 넣습니다.
+
+`models\held.pt`가 있으면 그것(이 PC 옷장 장면으로 미세 학습한 26)을, 없으면 `match\held.pt`(6차, 공개판)를 씁니다. `finetune.py final <이름>`으로 만든 판을 쓰려면 `models\held.pt`로 복사합니다.
 
 가상환경의 파이썬으로 직접 실행할 수도 있습니다.
 ```powershell
@@ -52,13 +63,19 @@ cd P-Project\Orbbec
 | `test_db.py` | 가짜 Supabase 서버로 `db.py` 시험, `python test_db.py` |
 | `vl.py` | 확인필요를 로컬 Qwen3-VL(아래 서버, 8090)에 묻기. 서버가 꺼져 있으면 아무것도 안 함 |
 | `test_vl.py` | 가짜 서버로 `vl.py` 시험, `python test_vl.py` |
+| `camweb.py`, `camweb.html` | 브라우저 카메라 페이지(https, key 필요). 등록·모델 선택·녹화·실시간 판정 |
+| `qwen.bat` | 로컬 Qwen3-VL 서버(llama.cpp, 127.0.0.1:8090). 없으면 받아서 띄움 |
+| `collect.py`, `camweb_review.html` | "학습용 장면 저장" 장면 → `/review`에서 사람이 맞음/옷 아님/버림 → `collect/approved` |
+| `more_data.py` | 녹화에서 학습 장면 만들기(`label`), 빈 옷걸이 녹화에 ATR 옷 합성(`synth`, `yolo/raw/data` 필요) |
+| `finetune.py` | 확인한 장면으로 26 미세 학습(`test` / `final <이름>`), CPU. `collect/synth_base` 필요 |
+| `pack_local.bat` | GitHub에 없는 이 PC 자료를 `fitmate_local.tar`로 묶음 |
 
 ### 문 앞 모습 함께 비교
 등록 사진(배경 제거)과 손에 든 옷 조각은 많이 달라 보입니다. 그래서 등록된 옷이 문 앞에서 한 번 **확실히** 판정되면 그때 조각을 그 옷의 "문 앞 모습"으로 두고, 사진만으로 애매할 때 함께 비교합니다(`track.py`의 `DOOR`).
 문 앞 영상 시험(등록 사진 = 배경 제거한 조각, 560번): 등록된 옷 맞음 211/240 → **235/240**, 미등록 옷 맞음 302/320 → 295/320.
 
 ### 확인필요 → Qwen3-VL
-아래 "로컬 Qwen3-VL 서버"가 떠 있으면 확인필요가 나올 때 조각과 후보 옷들의 등록 사진을 Qwen에 보내 "몇 번 / 없음"을 묻습니다. 사진은 이 PC 밖으로 나가지 않습니다. `FITMATE_VL=0`이면 끕니다.
+`qwen.bat`(또는 아래 "로컬 Qwen3-VL 서버")가 떠 있으면 확인필요가 나올 때 조각과 후보 옷들의 등록 사진을 Qwen에 보내 "몇 번 / 없음"을 묻습니다. 사진은 이 PC 밖으로 나가지 않습니다. `FITMATE_VL=0`이면 끕니다.
 - 한 문장 이유를 먼저 쓰고 답하게 함(답만 바로 내게 하면 41건 모두 "없음"이라고 답함)
 - Qwen이 판정 모델 1순위가 아닌 다른 옷을 고르거나, 모르거나, 답이 없으면 지금처럼 사용자에게 물음
 - 화면·로그에 두 판정을 나란히 보여 줌: `... · 등록 · disc · 0.52 · [Qwen 없이: 확인필요 U3 (disc, block 일 수 있음) | Qwen: disc]`. `track.jsonl`의 정정 줄에 `"by": "qwen"`
@@ -178,7 +195,8 @@ curl http://127.0.0.1:8090/health
 `{"status":"ok"}`가 나오면 준비 완료. 코드는 OpenAI 호환 주소 `http://127.0.0.1:8090/v1/chat/completions`로 요청합니다.
 
 **주의**
-- `-c 4096` 유지: GPU 메모리 8 GB(RX 580)에서 `-c 8192`로 올렸더니 답이 `GGGG...`로만 나왔습니다.
+- `vl.py`(확인필요 판정)는 `qwen.bat`처럼 `-c 8192`로 씁니다. 사진 10장 안팎을 한 번에 보내서입니다. 답이 `GGGG...`면 서버를 재시작합니다.
+- 이전 방식(`extract.py`)은 `-c 4096` 유지: GPU 메모리 8 GB(RX 580)에서 `-c 8192`로 올렸더니 답이 `GGGG...`로만 나왔습니다.
 - 4096에서도 오래 켜 두면 가끔 같은 `GGGG...` 상태가 됩니다. 이때는 서버를 재시작하면 됩니다. 코드는 이 답을 서버 고장으로 보고 해당 기록을 오류로 남겨 나중에 다시 판정합니다.
 - `-ngl 99` = 모든 층을 GPU에 올림. GPU 메모리가 부족하면 숫자를 줄이세요(일부는 CPU에서 돌아 느려짐).
 - 한 번에 사진 약 20장까지(문맥 4096 토큰)라 판정은 조각마다 따로 묻습니다.
