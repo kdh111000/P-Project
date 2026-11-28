@@ -283,8 +283,10 @@ def line(e):
     return s + (f" · [Qwen 없이: 확인필요 {e['without']} | Qwen: {e['vl']}]" if "vl" in e else "")
 
 
-def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, closet=None, held=None, on_frame=None, on_move=None):
+def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, closet=None, held=None, on_frame=None, on_move=None, cut=False):
     """frames: (unix time, bgr). wait: finish each comparison before the next frame (recorded files).
+    cut: take the background off the crops too (rembg), as off the registration photos. Off by default: on the door test it
+    called more unregistered garments registered (8 -> 20 of 320; README: 조각 전처리와 비교).
     held: which 26. on_frame(dets, lines, judging): after every frame; on_move(action, start, end): when a move is found (camweb.py)"""
     held = Path(held or HELD)  # read HELD now, not at import: tests swap live.HELD
     for f in (held, POSE, *(match.W / f"match_{m}.pt" for m in match.MODELS), match.W / "decider.npz"):
@@ -309,6 +311,8 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
         while (job := todo.get()) is not None:
             action, start, end, crops = job
             try:
+                if cut:
+                    crops = [match.cut_out(c) for c in crops]
                 name = f"track/{time.strftime('%Y%m%d-%H%M%S', time.localtime(end))}-{int(end % 1 * 1000):03d}.jpg"
                 (Path(out) / "track").mkdir(parents=True, exist_ok=True)
                 (Path(out) / name).write_bytes(cv2.imencode(".jpg", np.hstack([match.square(c) for c in crops]))[1].tobytes())
@@ -316,7 +320,7 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
                 ok = match.is_garment(frames) >= .5
                 if ok.mean() < .5:
                     print(f"옷이 아니어서 버림: {name} ({ok.sum()}/{len(ok)}장)", flush=True)
-                    event(out, held, action, start, end, name, garment_frames=f"{ok.sum()}/{len(ok)}")
+                    event(out, held, action, start, end, name, garment_frames=f"{ok.sum()}/{len(ok)}", cut=cut)
                     continue
                 e = t.move(action, [x[ok] for x in frames], start, end, crop=name)
                 if e is None:  # the same garment going the same way again: still that move
@@ -339,7 +343,7 @@ def run(frames, side, cid=None, size=640, window=True, out=OUT, wait=False, clos
                         e = {**e, "item": e["item"] if ans == NEW else ans, "kind": NEW if ans == NEW else REGISTERED, "candidates": []}
                     e = {**e, "vl": said, "without": without}
                 print(line(e), flush=True)
-                event(out, held, action, start, end, name, e)
+                event(out, held, action, start, end, name, e, cut=cut)
                 if db.on():
                     try:
                         db.push(e)

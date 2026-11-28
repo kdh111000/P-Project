@@ -15,7 +15,8 @@ def test_events():
          "vl_why": "Same logo as candidate 1.", "compare": [{"against": "photos", "best": "셔츠", "p": .52, "alike": ["셔츠", "코트"]}]}
     t = time.time()
     live.event(out, "models/held.pt", "out", t, t + 1, "track/a.jpg")
-    v = live.event(out, "models/held.pt", "in", t + 10, t + 11.5, "track/a.jpg", {**e, "item": "셔츠", "kind": "등록"})
+    v = live.event(out, "models/held.pt", "in", t + 10, t + 11.5, "track/a.jpg", {**e, "item": "셔츠", "kind": "등록"}, cut=True)
+    assert v["cut"] is True
     assert v["result"] == "등록" and v["garment"] == "셔츠" and v["qwen"]["answer"] == "셔츠" and v["model"] == "held"
     assert v["qwen"]["why"] == "Same logo as candidate 1." and v["compare"][0]["alike"] == ["셔츠", "코트"] and v["compare"][0]["db_ids"] == [None, None]
     assert v["crop"] == "doorcam_web/20261129-120000-000001/track/a.jpg" and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}[+-]\d\d:\d\d", v["time"]), v

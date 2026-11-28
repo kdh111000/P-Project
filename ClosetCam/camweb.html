@@ -143,6 +143,8 @@
       <div class="note">이 PC의 doorcam_web/시각/ 에 raw.webm(원본)과 rec/(판정 화면)로 저장. 입출고 순서는 따로 적어 주세요. 멈춘 뒤 '원본 다 올림'이 뜰 때까지 창을 닫지 마세요.</div>
       <label class="tog"><input type="checkbox" id="keep"> 학습용 장면 저장</label>
       <div class="note">카메라가 고정돼 있을 때 입출고 장면만 모읍니다(이 PC에만). 위의 '장면 확인'에서 판정.</div>
+      <label class="tog"><input type="checkbox" id="cut"> 조각 배경도 지우고 비교 (시험)</label>
+      <div class="note">등록 사진처럼 조각의 배경도 지운 뒤 비교합니다. 문 앞 영상 시험에서는 미등록 옷을 등록으로 잘못 보는 일이 늘었습니다(8→20건/320). 판정이 몇 초 느려집니다. 로그의 <code>cut</code>에 남습니다.</div>
       <label class="tog"><input type="checkbox" id="weak"> 약한 박스도 보기</label>
     </details>
     <details class="card">
@@ -223,7 +225,7 @@ async function start() {
   const r = raw;  // this session's camera video
   $("idle").hidden = true; running = true; times = []; lock(true);
   say("status", "모델 여는 중... (처음엔 수십 초)");
-  const q = new URLSearchParams({ key, model: models[$("model").value].name, side: $("side").value, size: $("size").value, keep: $("keep").checked ? 1 : 0, rec: $("rec").checked ? 1 : 0 });
+  const q = new URLSearchParams({ key, model: models[$("model").value].name, side: $("side").value, size: $("size").value, keep: $("keep").checked ? 1 : 0, rec: $("rec").checked ? 1 : 0, cut: $("cut").checked ? 1 : 0 });
   sock = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?${q}`);
   sock.onopen = send;
   sock.onmessage = e => {
@@ -335,7 +337,7 @@ $("full").onclick = () => {
 };
 ["fullscreenchange", "webkitfullscreenchange"].forEach(n => document.addEventListener(n, syncFull));
 addEventListener("keydown", e => { if (e.key === "Escape" && stage.classList.contains("full")) { stage.classList.remove("full"); syncFull(); } });
-function lock(on) { ["cam", "model", "side", "size", "mode", "keep", "rec"].forEach(i => $(i).disabled = on); $("start").disabled = on; $("stop").disabled = !on;
+function lock(on) { ["cam", "model", "side", "size", "mode", "keep", "rec", "cut"].forEach(i => $(i).disabled = on); $("start").disabled = on; $("stop").disabled = !on;
   if (on && matchMedia("(max-width: 860px)").matches) { $("setBox").open = false; scrollTo({ top: 0, behavior: "smooth" }); }  // phone: video and moves in view
 }
 

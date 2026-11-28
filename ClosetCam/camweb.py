@@ -184,7 +184,8 @@ async def api_raw(key: str = Form(""), folder: str = Form(...), n: int = Form(..
 
 
 @app.websocket("/ws")
-async def ws(sock: WebSocket, key: str = "", model: str = "", side: str = "right", size: int = 640, keep: int = 0, rec: int = 0):
+async def ws(sock: WebSocket, key: str = "", model: str = "", side: str = "right", size: int = 640, keep: int = 0, rec: int = 0,
+             cut: int = 0):
     """the page sends JPEG frames, one at a time; each answer: boxes, moves so far, whether a move is being judged"""
     m = models().get(model)
     if not secrets.compare_digest(key, KEY) or m is None or side not in ("left", "right") or size not in (480, 640, 960):
@@ -205,7 +206,7 @@ async def ws(sock: WebSocket, key: str = "", model: str = "", side: str = "right
 
     def watch():
         try:
-            live.run(feed(), side, size=size, window=False, out=out, held=m[0],
+            live.run(feed(), side, size=size, window=False, out=out, held=m[0], cut=bool(cut),
                      on_frame=lambda d, l, busy: answers.put({"dets": d, "head": l[0].split(" · q")[0], "moves": l[1:], "busy": busy}),
                      on_move=lambda *m: moves.put(m))
         except BaseException as e:  # SystemExit: a model file missing
