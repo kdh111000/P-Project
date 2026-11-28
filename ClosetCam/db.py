@@ -13,7 +13,7 @@ import requests
 ROOT = Path(__file__).resolve().parent
 CACHE, LOCAL = ROOT / "db_cache", ROOT / "db_local.jsonl"
 TABLE = "clothes"
-IN_CLOSET = True  # ponytail: is_available = "in the closet" assumed; flip if the team means otherwise
+IN_CLOSET = True  # is_available = the garment is really in the closet (team, 11-29)
 TIMEOUT = 15
 
 
